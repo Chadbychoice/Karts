@@ -39,12 +39,13 @@ function initializeSocketIO(server) {
     if (io) return io; // Already initialized
 
     io = new Server(server, {
+         path: "/socket.io", // Explicitly set the path
          cors: { // Configure CORS if your frontend might be on a different Vercel URL initially
              origin: "*", // Allow all origins for simplicity, tighten in production
              methods: ["GET", "POST"]
          }
     });
-    console.log("Socket.IO server initialized");
+    console.log("Socket.IO server initialized with path /socket.io");
 
     // --- Socket.IO Connection Handling (Moved inside initialization) ---
     io.on('connection', (socket) => {
