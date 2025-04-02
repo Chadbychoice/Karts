@@ -1,9 +1,7 @@
 import * as THREE from 'three';
 
 // --- Basic Setup ---
-// Explicitly connect to the server using the same host
-// Force only WebSocket transport, disable polling
-const socket = io({ transports: ['websocket'] });
+const socket = io();
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer();
