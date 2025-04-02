@@ -25,6 +25,9 @@ let players = {}; // Store player data { id: { position, rotation, characterId, 
 let localPlayerId = null;
 let raceInitialized = false; // Track if race scene is set up
 
+// Global variable to track which course to load locally
+let localSelectedCourseId = 1;
+
 // --- DOM Elements ---
 const characterSelectionOverlay = document.getElementById('character-selection');
 const waitingScreenOverlay = document.getElementById('waiting-screen');
@@ -44,6 +47,33 @@ const characterSpriteAngles = ['f', 'fr', 'r', 'br', 'b', 'bl', 'l', 'fl'];
 // --- Texture Loading ---
 const textureLoader = new THREE.TextureLoader();
 const characterTextures = {}; // Cache for loaded textures { 'charId_angle': THREE.Texture }
+const flameTextures = [];
+let particlesMaterial;
+
+function preloadAssets() {
+    // Preload flame textures
+    for (let i = 1; i <= 7; i++) {
+        const path = `/Sprites/flame/flame${i}.png`;
+        flameTextures[i - 1] = textureLoader.load(
+            path,
+            (tex) => {
+                tex.magFilter = THREE.NearestFilter;
+                tex.minFilter = THREE.NearestFilter;
+            },
+            undefined,
+            (err) => console.error(`Failed to load flame texture: ${path}`, err)
+        );
+    }
+
+    // Create dust particle material
+    particlesMaterial = new THREE.PointsMaterial({
+         color: 0xffffff,
+         size: 0.08,
+         depthTest: false,  // Don't check depth buffer
+         depthWrite: false, // Don't write to depth buffer
+         transparent: true // Ensure transparency works correctly
+    });
+}
 
 function getCharacterTexture(characterId, angle = 'b') {
     const cacheKey = `${characterId}_${angle}`;
@@ -329,65 +359,102 @@ socket.on('updatePlayerPosition', (playerId, position, rotation) => {
 
 // --- Three.js Scene Objects ---
 let playerObjects = {}; // { playerId: THREE.Sprite }
-const playerSpriteScale = 2; // Adjust scale of sprites as needed
+const playerSpriteScale = 2;
+let playerVisuals = {}; // Store visual components { sprite, boostFlame, driftParticles }
 
 function addPlayerObject(playerId, playerData) {
-    if (!playerObjects[playerId] && playerData.characterId) { // Ensure character is selected
+    if (!playerObjects[playerId] && playerData.characterId) {
         const characterId = playerData.characterId;
-        // Start with 'b' view or calculate initial angle? Let's start with 'b'.
         const initialAngleCode = 'b';
         const texture = getCharacterTexture(characterId, initialAngleCode);
 
         if (!texture) {
              console.error(`Cannot create sprite for player ${playerId}, texture not loaded/failed for char ${characterId}`);
-             return; // Don't add object if texture is missing
+             return;
         }
 
         const material = new THREE.SpriteMaterial({
             map: texture,
-            transparent: true, // Needed for PNG transparency
-            alphaTest: 0.1,    // Adjust if needed to clip transparent edges
-            // sizeAttenuation: false // Optional: make sprite size fixed regardless of distance
+            transparent: true,
+            alphaTest: 0.1,
         });
-        // material.map.needsUpdate = true; // No need, happens on load/get
 
         const sprite = new THREE.Sprite(material);
         sprite.scale.set(playerSpriteScale, playerSpriteScale, playerSpriteScale);
-        // Store characterId for easy access during angle updates
         sprite.userData = { characterId: characterId, currentAngleCode: initialAngleCode };
+        playerObjects[playerId] = sprite; // Keep reference to main sprite for positioning
 
-
-        // Set initial position based on playerData received from server (start position)
+        // Set initial sprite position
         if (playerData.position) {
             sprite.position.set(playerData.position.x, playerData.position.y + playerSpriteScale / 2, playerData.position.z);
         } else {
              sprite.position.set(0, playerSpriteScale / 2, 0);
              console.warn(`Player ${playerId} created without initial position.`);
         }
-
-        playerObjects[playerId] = sprite;
         scene.add(sprite);
         console.log(`Added player sprite for: ${playerId} with char ${characterId}`);
 
-        // Calculate initial sprite angle immediately after adding
-        updatePlayerSpriteAngle(playerId, sprite, playerData);
+        // --- Create Boost Flame Sprite (Added to Scene directly) ---
+        const boostMaterial = new THREE.SpriteMaterial({
+            map: flameTextures[0],
+            transparent: true,
+            alphaTest: 0.1,
+            depthTest: false, // Don't check depth buffer
+            depthWrite: false // Don't write to depth buffer
+        });
+        const boostFlame = new THREE.Sprite(boostMaterial);
+        boostFlame.scale.set(1.0, 1.0, 1.0); // Scale adjusted previously
+        // Initial position will be set in the first updateBoostFlame call
+        boostFlame.position.set(0, 0.01, 0); // Set Y low initially
+        boostFlame.visible = false;
+        // boostFlame.renderOrder = 1; // Removed, depthTest:false handles layering
+        scene.add(boostFlame); // Add flame directly to the scene
 
+        // --- Create Drift Particles (Added to Scene directly) ---
+        const particleCount = 40; // Increased count
+        const particlesGeometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(particleCount * 3); // Adjusted array size
+        particlesGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const driftParticles = new THREE.Points(particlesGeometry, particlesMaterial);
+        // Set initial position near player, low Y. Exact position updated in updateDriftParticles
+        driftParticles.position.copy(sprite.position);
+        driftParticles.position.y = 0.05; // Initial low Y
+        driftParticles.visible = false;
+        // // driftParticles.renderOrder = 1; // Not needed if material has depthTest: false
+        scene.add(driftParticles); // ADDED: Add particles directly to the scene
+
+        // Store visual components
+        playerVisuals[playerId] = { sprite, boostFlame, driftParticles };
+
+        updatePlayerSpriteAngle(playerId, sprite, playerData);
     } else if (!playerData.characterId) {
          console.warn(`Player ${playerId} has no characterId, cannot create sprite.`);
     }
 }
 
-
 function removePlayerObject(playerId) {
-    if (playerObjects[playerId]) {
-        const sprite = playerObjects[playerId];
-        scene.remove(sprite);
-        if (sprite.material) {
-             // Don't dispose map texture (cached)
-             sprite.material.dispose();
-        }
+    if (playerVisuals[playerId]) {
+        const { sprite, boostFlame, driftParticles } = playerVisuals[playerId];
+
+        scene.remove(sprite); // Removing parent sprite
+        scene.remove(boostFlame); // Remove flame from scene explicitly
+        scene.remove(driftParticles); // ADDED: Remove particles from scene explicitly
+
+        // Dispose materials/geometries
+        if (sprite.material) sprite.material.dispose();
+        if (boostFlame.material) boostFlame.material.dispose();
+        if (driftParticles.geometry) driftParticles.geometry.dispose();
+        // Particle material (particlesMaterial) is shared, don't dispose here unless it's the last user
+
         delete playerObjects[playerId];
-        console.log("Removed player object for:", playerId);
+        delete playerVisuals[playerId];
+        console.log("Removed player object and visuals for:", playerId);
+    } else if (playerObjects[playerId]) { // Fallback if only sprite exists
+         const sprite = playerObjects[playerId];
+         scene.remove(sprite);
+         if (sprite.material) sprite.material.dispose();
+         delete playerObjects[playerId];
+         console.log("Removed player object (no visuals found) for:", playerId);
     }
 }
 
@@ -462,17 +529,54 @@ let leftTurnStartTime = 0;
 let rightTurnStartTime = 0;
 const TURN_SPRITE_DELAY = 500; // Milliseconds to hold turn before sprite changes (0.5 seconds)
 
+// Drift State
+let localPlayerDriftState = {
+    state: 'none', // 'none', 'hopping', 'driftingLeft', 'driftingRight'
+    direction: 0, // -1 for left, 1 for right
+    startTime: 0,
+    hopEndTime: 0,
+    miniTurboLevel: 0, // 0: none, 1: blue, 2: orange/red
+    currentSidewaysAdjustment: 0 // Added for smoothing radius changes
+};
+
 window.addEventListener('keydown', (event) => {
     const key = event.key.toLowerCase();
     if (!keyStates[key]) { // Keydown event fires repeatedly, only trigger on first press
         keyStates[key] = true;
+        const now = Date.now();
         if (key === 'a' || key === 'arrowleft') {
-            leftTurnStartTime = Date.now();
-            rightTurnStartTime = 0; // Reset other direction timer
+            leftTurnStartTime = now;
+            rightTurnStartTime = 0;
         } else if (key === 'd' || key === 'arrowright') {
-            rightTurnStartTime = Date.now();
-            leftTurnStartTime = 0; // Reset other direction timer
+            rightTurnStartTime = now;
+            leftTurnStartTime = 0;
+        } else if (key === 'shift') {
+             // Check if turning when hop starts
+             const turningLeft = keyStates['a'] || keyStates['arrowleft'];
+             const turningRight = keyStates['d'] || keyStates['arrowright'];
+             if (turningLeft || turningRight) {
+                 initiateDrift(turningLeft ? -1 : 1, now); // -1 left, 1 right
+             }
         }
+    }
+
+    // --- Local Course Switching --- 
+    if (event.key === '1') {
+         localSelectedCourseId = 1;
+         console.log("Selected Course 1 (Press 'R' to reload)");
+    } else if (event.key === '2') {
+         localSelectedCourseId = 2;
+         console.log("Selected Course 2 (Press 'R' to reload)");
+    } else if (event.key.toLowerCase() === 'r') {
+         console.log("Reloading scene with Course:", localSelectedCourseId);
+         // Simulate receiving a minimal game state to trigger reload
+         // In a real scenario, you might rejoin or get a full update
+         const fakeGameState = { 
+             state: 'racing', // Assume racing state for simplicity
+             players: { ...players }, // Pass current player data
+             race: { courseId: localSelectedCourseId } // Tell init which course *we* want
+         };
+         handleGameStateUpdate(fakeGameState);
     }
 });
 window.addEventListener('keyup', (event) => {
@@ -482,100 +586,233 @@ window.addEventListener('keyup', (event) => {
         leftTurnStartTime = 0;
     } else if (key === 'd' || key === 'arrowright') {
         rightTurnStartTime = 0;
+    } else if (key === 'shift') {
+        releaseDrift(); // Handle drift button release
     }
 });
 
 // Driving Physics Constants
-const ACCELERATION = 0.01;
-const DECELERATION = 0.008; // Friction
+const ACCELERATION = 0.006; // Decreased for slower ramp-up
+const DECELERATION = 0.007; // DECREASED Friction slightly
 const BRAKING_FORCE = 0.015;
-const MAX_SPEED = 0.4;
+const MAX_SPEED = 0.5; // Increased top speed
 const MAX_REVERSE_SPEED = -0.1;
-const TURN_SPEED_BASE = 0.025; // Reduced base turn speed for wider turns
-const TURN_SPEED_VELOCITY_FACTOR = 0; // Turn speed now constant
+const TURN_SPEED_BASE = 0.025; // Base radians per frame
+
+// Drift Physics Constants
+const HOP_DURATION = 150; // ms
+const DRIFT_TURN_RATE = 0.035; // How sharply the kart turns automatically during drift
+const DRIFT_COUNTER_STEER_FACTOR = 0.4; // How much player input affects drift angle WHEN NOT adjusting radius (keep for now?)
+const DRIFT_SIDEWAYS_FACTOR = 0.4; // INCREASED: More base sideways slide
+const DRIFT_COUNTER_STEER_RADIUS_EFFECT = 25.0; // EXTREME potential effect
+const DRIFT_RADIUS_LERP_FACTOR = 0.005; // DECREASED AGAIN: Very slow smoothing
+// const DRIFT_SPEED_MULTIPLIER = 0.98; // REMOVED - No speed penalty for drifting
+const MINI_TURBO_LEVEL_1_TIME = 1000; // ms for blue sparks
+const MINI_TURBO_LEVEL_2_TIME = 2000; // ms for orange sparks
+const BOOST_LEVEL_1_STRENGTH = 0.3; // Additional velocity
+const BOOST_LEVEL_2_STRENGTH = 0.5;
+const BOOST_DURATION = 800; // ms
+
+let boostEndTime = 0; // Track when current boost ends
+let boostTriggerLevel = 0; // Track which mini-turbo level triggered the current boost
+
+function initiateDrift(direction, now) {
+    if (localPlayerDriftState.state === 'none' && players[localPlayerId]?.velocity > 0.1) { // Can only drift if moving forward
+        console.log("Initiate Hop/Drift:", direction === -1 ? "Left" : "Right");
+        localPlayerDriftState.state = 'hopping';
+        localPlayerDriftState.direction = direction;
+        localPlayerDriftState.startTime = now;
+        localPlayerDriftState.hopEndTime = now + HOP_DURATION;
+        localPlayerDriftState.miniTurboLevel = 0;
+        localPlayerDriftState.currentSidewaysAdjustment = 0; // Reset smoothed value
+        // TODO: Trigger hop animation visually
+    }
+}
+
+function releaseDrift() {
+    if (localPlayerDriftState.state === 'driftingLeft' || localPlayerDriftState.state === 'driftingRight') {
+        console.log("Release Drift - Mini Turbo Level:", localPlayerDriftState.miniTurboLevel);
+        if (localPlayerDriftState.miniTurboLevel > 0) {
+             // Apply boost
+             let boostStrength = (localPlayerDriftState.miniTurboLevel === 1) ? BOOST_LEVEL_1_STRENGTH : BOOST_LEVEL_2_STRENGTH;
+             boostTriggerLevel = localPlayerDriftState.miniTurboLevel; // Store the level for flame tinting
+             if(players[localPlayerId]) {
+                 players[localPlayerId].velocity += boostStrength;
+                 players[localPlayerId].velocity = Math.min(players[localPlayerId].velocity, MAX_SPEED + boostStrength * 0.5); // Allow exceeding max speed slightly
+                 boostEndTime = Date.now() + BOOST_DURATION;
+                 console.log("BOOST APPLIED! Level:", localPlayerDriftState.miniTurboLevel, "New Velocity:", players[localPlayerId].velocity);
+                 // TODO: Trigger boost visual/audio
+             }
+        }
+         // Reset drift state
+         localPlayerDriftState.state = 'none';
+         localPlayerDriftState.direction = 0;
+         localPlayerDriftState.startTime = 0;
+         localPlayerDriftState.hopEndTime = 0;
+         localPlayerDriftState.miniTurboLevel = 0;
+         localPlayerDriftState.currentSidewaysAdjustment = 0; // Reset smoothed value
+    } else if (localPlayerDriftState.state === 'hopping') {
+         // Cancel hop if button released too early
+         localPlayerDriftState.state = 'none';
+         localPlayerDriftState.currentSidewaysAdjustment = 0; // Also reset here
+         console.log("Hop Cancelled");
+    }
+}
+
+// Need temporary vectors accessible in the function scope
+const playerRight = new THREE.Vector3();
+const driftMoveDirection = new THREE.Vector3();
 
 function handleDrivingInput() {
     if (!localPlayerId || !playerObjects[localPlayerId] || !players[localPlayerId]) return;
 
     const player = players[localPlayerId];
     const playerObject = playerObjects[localPlayerId];
+    const now = Date.now();
 
     // Initialize physics state if missing
-    if (player.velocity === undefined) {
-        player.velocity = 0; // Current forward/backward speed
-    }
-    // Initialize position and rotation in local state if missing (should be set by server)
-    if (!player.position) {
-        player.position = { x: playerObject.position.x, y: playerObject.position.y - playerSpriteScale / 2, z: playerObject.position.z };
-        console.warn("Local player state initialized position from object");
-    }
-    if (!player.rotation) {
-        player.rotation = { y: 0 };
-        console.warn("Local player state initialized rotation");
-    }
+    if (player.velocity === undefined) player.velocity = 0;
+    if (!player.position) player.position = { x: playerObject.position.x, y: playerObject.position.y - playerSpriteScale / 2, z: playerObject.position.z };
+    if (!player.rotation) player.rotation = { y: 0 };
+
 
     let deltaRotation = 0;
     let rotationChanged = false;
     let positionChanged = false;
+    let isCurrentlyDrifting = localPlayerDriftState.state === 'driftingLeft' || localPlayerDriftState.state === 'driftingRight';
+    let isHopping = localPlayerDriftState.state === 'hopping';
 
-    // --- Rotation ---
-    // Determine base turn direction based on keys
-    let intendedTurnDirection = 0; // 1 for left, -1 for right
-    if (keyStates['a'] || keyStates['arrowleft']) {
-        intendedTurnDirection = 1;
-    } else if (keyStates['d'] || keyStates['arrowright']) {
-        intendedTurnDirection = -1;
+    // --- State Transitions ---
+    if (isHopping && now >= localPlayerDriftState.hopEndTime) {
+        localPlayerDriftState.state = (localPlayerDriftState.direction === -1) ? 'driftingLeft' : 'driftingRight';
+        localPlayerDriftState.startTime = now; // Start drift timer AFTER hop
+        console.log("Hop Finished -> Drifting", localPlayerDriftState.state);
+        isHopping = false;
+        isCurrentlyDrifting = true;
     }
 
-    // Apply turn if a direction is intended
-    if (intendedTurnDirection !== 0) {
-        // Invert direction if reversing
-        const actualTurnDirection = (player.velocity < 0) ? -intendedTurnDirection : intendedTurnDirection;
-        deltaRotation = actualTurnDirection * TURN_SPEED_BASE; // Apply base turn speed
+    // --- Determine Current Player Axes ---
+    // Important: Calculate forward/right based on the CURRENT rotation
+    playerForward.set(0, 0, -1).applyAxisAngle(THREE.Object3D.DEFAULT_UP, player.rotation.y);
+    playerRight.set(1, 0, 0).applyAxisAngle(THREE.Object3D.DEFAULT_UP, player.rotation.y);
 
+    // --- Rotation & Drift Movement Vector Calculation ---
+    driftMoveDirection.set(0, 0, 0); // Reset drift move direction
+
+    if (isCurrentlyDrifting) {
+        // Base automatic rotation based on drift direction
+        deltaRotation = -localPlayerDriftState.direction * DRIFT_TURN_RATE;
+
+        // Calculate target sideways drift adjustment AND counter-rotation based on steering
+        let counterSteerInput = 0;
+        if (keyStates['a'] || keyStates['arrowleft']) {
+            counterSteerInput = 1; // Steering left
+        } else if (keyStates['d'] || keyStates['arrowright']) {
+            counterSteerInput = -1; // Steering right
+        }
+
+        let targetSidewaysAdjustment = 0;
+        if (counterSteerInput !== 0) {
+            targetSidewaysAdjustment = -(counterSteerInput * localPlayerDriftState.direction) * DRIFT_COUNTER_STEER_RADIUS_EFFECT;
+
+            // NEW: If steering *against* the drift direction, slightly counteract the automatic turning
+            if (counterSteerInput === localPlayerDriftState.direction) { 
+                // Steering input matches drift direction (widening attempt)
+                // Apply a counter-rotation based on TURN_SPEED_BASE and a small factor
+                const counterRotationFactor = 0.3; // How much counter-steer affects rotation during drift
+                deltaRotation += counterSteerInput * TURN_SPEED_BASE * counterRotationFactor;
+            }
+        }
+        
+        // Smoothly interpolate the current adjustment towards the target
+        localPlayerDriftState.currentSidewaysAdjustment += 
+            (targetSidewaysAdjustment - localPlayerDriftState.currentSidewaysAdjustment) * DRIFT_RADIUS_LERP_FACTOR;
+
+        // Use the smoothed adjustment to calculate the final sideways factor
+        const currentSidewaysFactor = DRIFT_SIDEWAYS_FACTOR * (1 + localPlayerDriftState.currentSidewaysAdjustment);
+        const sidewaysDrift = playerRight.clone().multiplyScalar(localPlayerDriftState.direction * currentSidewaysFactor);
+
+        // Combine forward motion and sideways drift
+        driftMoveDirection.copy(playerForward).add(sidewaysDrift).normalize();
+
+    } else if (!isHopping) { // Normal steering (if not hopping)
+        let intendedTurnDirection = 0;
+        if (keyStates['a'] || keyStates['arrowleft']) intendedTurnDirection = 1;
+        else if (keyStates['d'] || keyStates['arrowright']) intendedTurnDirection = -1;
+
+        if (intendedTurnDirection !== 0) {
+            const actualTurnDirection = (player.velocity < 0) ? -intendedTurnDirection : intendedTurnDirection;
+            deltaRotation = actualTurnDirection * TURN_SPEED_BASE;
+        }
+    }
+
+    // Apply Rotation Change (calculated deltaRotation from either drift or normal steer)
+    if (deltaRotation !== 0) {
         player.rotation.y = (player.rotation.y + deltaRotation);
         player.rotation.y = (player.rotation.y + Math.PI * 2) % (Math.PI * 2); // Normalize
         rotationChanged = true;
     }
 
-    // --- Acceleration / Deceleration ---
-    if (keyStates['w'] || keyStates['arrowup']) {
-        player.velocity += ACCELERATION;
-        player.velocity = Math.min(player.velocity, MAX_SPEED); // Clamp to max speed
-    } else if (keyStates['s'] || keyStates['arrowdown']) {
+    // --- Acceleration / Deceleration --- (Mostly unchanged)
+    let currentMaxSpeed = (now < boostEndTime) ? MAX_SPEED + BOOST_LEVEL_2_STRENGTH : MAX_SPEED; // Allow higher speed during boost
+    let currentAcceleration = ACCELERATION;
+    // if (isCurrentlyDrifting) { // Keep drift accel penalty? Optional.
+    //     currentAcceleration *= 0.5;
+    // }
+
+    if (!isHopping && (keyStates['w'] || keyStates['arrowup'])) {
+        player.velocity += currentAcceleration;
+        player.velocity = Math.min(player.velocity, currentMaxSpeed);
+    } else if (!isHopping && (keyStates['s'] || keyStates['arrowdown'])) {
         player.velocity -= BRAKING_FORCE;
-        player.velocity = Math.max(player.velocity, MAX_REVERSE_SPEED); // Clamp to max reverse speed
+        player.velocity = Math.max(player.velocity, MAX_REVERSE_SPEED);
     } else {
-        // Apply friction/deceleration only if velocity is not zero
+        // Apply friction/deceleration
         if (player.velocity > 0) {
             player.velocity -= DECELERATION;
-            player.velocity = Math.max(0, player.velocity); // Don't go below zero
+            player.velocity = Math.max(0, player.velocity);
         } else if (player.velocity < 0) {
             player.velocity += DECELERATION;
-            player.velocity = Math.min(0, player.velocity); // Don't go above zero
+            player.velocity = Math.min(0, player.velocity);
         }
     }
 
-     // --- Update Position ---
-     if (Math.abs(player.velocity) > 0.001) { // Only move if velocity is significant
-         // Calculate movement vector based on current velocity and rotation
-         const moveDirection = new THREE.Vector3(0, 0, -1); // Base forward vector (-Z)
-         moveDirection.applyAxisAngle(THREE.Object3D.DEFAULT_UP, player.rotation.y);
-         moveDirection.multiplyScalar(player.velocity); // Apply speed
-
-         player.position.x += moveDirection.x;
-         player.position.y += moveDirection.y; // Should be 0 for flat ground
-         player.position.z += moveDirection.z;
-         positionChanged = true;
+    // --- Update Mini-Turbo Level --- (Unchanged)
+     if (isCurrentlyDrifting) {
+         const driftDuration = now - localPlayerDriftState.startTime;
+         if (driftDuration > MINI_TURBO_LEVEL_2_TIME) {
+             localPlayerDriftState.miniTurboLevel = 2;
+         } else if (driftDuration > MINI_TURBO_LEVEL_1_TIME) {
+             localPlayerDriftState.miniTurboLevel = 1;
+         } else {
+             localPlayerDriftState.miniTurboLevel = 0;
+         }
      }
+
+    // --- Update Position --- (Refactored)
+    if (Math.abs(player.velocity) > 0.001) { 
+        let moveVector = new THREE.Vector3();
+        if (isCurrentlyDrifting) {
+            // Use the calculated drift direction vector
+            moveVector.copy(driftMoveDirection);
+        } else {
+            // Use the standard forward direction based on current rotation
+            moveVector.set(0, 0, -1).applyAxisAngle(THREE.Object3D.DEFAULT_UP, player.rotation.y);
+        }
+
+        moveVector.multiplyScalar(player.velocity);
+
+        player.position.x += moveVector.x;
+        player.position.y += moveVector.y; // Should be 0 if moveVector is calculated correctly on XZ plane
+        player.position.z += moveVector.z;
+        positionChanged = true;
+    }
 
     // Update the visual object immediately for responsiveness if necessary
-     if (positionChanged) { // Only need to update visuals if position changed
-          updatePlayerObjectTransform(localPlayerId, player.position, player.rotation);
-          // Visual rotation update happens via updatePlayerSpriteAngle called in animate()
-     }
+    if (positionChanged) {
+         updatePlayerObjectTransform(localPlayerId, player.position, player.rotation);
+    }
 }
-
 
 function updateCameraPosition() {
     // Make the camera follow the localPlayerObject smoothly
@@ -634,6 +871,7 @@ console.log("Client script loaded. Waiting for server connection...");
 // The animate() loop is started only when the game state becomes 'racing' or 'waiting'.
 
 console.log("Client script loaded. Waiting for server connection...");
+preloadAssets(); // Call preload function
 
 function updatePlayerSpriteAngle(playerId, sprite, playerData) {
     if (!sprite || !sprite.userData || !playerData) return;
@@ -641,15 +879,22 @@ function updatePlayerSpriteAngle(playerId, sprite, playerData) {
     let newAngleIndex;
 
     if (playerId === localPlayerId) {
-        // For local player, check turn key hold duration
-        const now = Date.now();
-        if ((keyStates['a'] || keyStates['arrowleft']) && leftTurnStartTime && (now - leftTurnStartTime > TURN_SPRITE_DELAY)) {
-            newAngleIndex = 5; // Force 'bl' sprite after delay
-        } else if ((keyStates['d'] || keyStates['arrowright']) && rightTurnStartTime && (now - rightTurnStartTime > TURN_SPRITE_DELAY)) {
-            newAngleIndex = 3; // Force 'br' sprite after delay
+        const isDrifting = (localPlayerDriftState.state === 'driftingLeft' || localPlayerDriftState.state === 'driftingRight');
+
+        if (isDrifting) {
+            // Force sprite angle based on drift direction
+            newAngleIndex = (localPlayerDriftState.direction === -1) ? 5 : 3; // 5='bl', 3='br'
         } else {
-            // If not turning long enough or not turning, use camera vs facing angle
-            newAngleIndex = calculateSpriteAngleIndex(sprite, playerData);
+            // Original logic for non-drifting state (hold turn delay etc.)
+            const now = Date.now();
+            if ((keyStates['a'] || keyStates['arrowleft']) && leftTurnStartTime && (now - leftTurnStartTime > TURN_SPRITE_DELAY)) {
+                newAngleIndex = 5; // Force 'bl' sprite after delay
+            } else if ((keyStates['d'] || keyStates['arrowright']) && rightTurnStartTime && (now - rightTurnStartTime > TURN_SPRITE_DELAY)) {
+                newAngleIndex = 3; // Force 'br' sprite after delay
+            } else {
+                // If not turning long enough or not turning, use camera vs facing angle
+                newAngleIndex = calculateSpriteAngleIndex(sprite, playerData);
+            }
         }
     } else {
         // For remote players, use camera vs facing angle
@@ -665,7 +910,6 @@ function updatePlayerSpriteAngle(playerId, sprite, playerData) {
             sprite.material.map = newTexture;
             sprite.material.needsUpdate = true;
             sprite.userData.currentAngleCode = newAngleCode;
-            // console.log(`Player ${playerId} changed angle to ${newAngleCode} (${newAngleIndex})`);
         } else if (!newTexture) {
              console.warn(`Failed to get texture for angle ${newAngleCode} for player ${playerId}`);
         }
@@ -700,142 +944,148 @@ function updatePlayerObjects() {
     }
 }
 
+// Define Course Layout Data (will eventually come from server)
+const courseLayouts = {
+    1: {
+        name: "Simple Plane",
+        planeSize: { width: 100, height: 200 },
+        roadTexturePath: 'textures/road.png',
+        textureRepeat: { x: 10, y: 20 },
+        walls: [
+            { type: 'box', size: { x: 1, y: 3, z: 200 }, position: { x: -50.5, y: 1.5, z: 0 } }, // Left
+            { type: 'box', size: { x: 1, y: 3, z: 200 }, position: { x: 50.5, y: 1.5, z: 0 } }  // Right
+        ],
+        startPositions: [
+             { x: 0, z: 5 }, { x: 2, z: 5 }, { x: -2, z: 5 }, { x: 4, z: 5 },
+             { x: -4, z: 5 }, { x: 6, z: 5 }, { x: -6, z: 5 }, { x: 8, z: 5 }
+        ]
+    },
+    // Add more courses here...
+    2: {
+        name: "Basic Oval",
+        planeSize: { width: 120, height: 220 }, // Larger plane for oval
+        roadTexturePath: 'textures/road_oval.png', // Different texture maybe?
+        textureRepeat: { x: 12, y: 22 },
+        walls: [
+             // Outer Walls (example)
+             { type: 'box', size: { x: 1, y: 3, z: 220 }, position: { x: -60.5, y: 1.5, z: 0 } },
+             { type: 'box', size: { x: 1, y: 3, z: 220 }, position: { x: 60.5, y: 1.5, z: 0 } },
+             { type: 'box', size: { x: 120, y: 3, z: 1 }, position: { x: 0, y: 1.5, z: -110.5 } },
+             { type: 'box', size: { x: 120, y: 3, z: 1 }, position: { x: 0, y: 1.5, z: 110.5 } },
+             // Inner Walls (example - making an oval shape)
+             { type: 'box', size: { x: 1, y: 3, z: 100 }, position: { x: -20.5, y: 1.5, z: -50 } },
+             { type: 'box', size: { x: 1, y: 3, z: 100 }, position: { x: 20.5, y: 1.5, z: -50 } },
+             // ... potentially more complex shapes using multiple boxes or geometry
+        ],
+        startPositions: [
+             { x: -4, z: 100 }, { x: -2, z: 100 }, { x: 0, z: 100 }, { x: 2, z: 100 },
+             { x: 4, z: 100 }, { x: 6, z: 100 }, { x: -6, z: 100 }, { x: -8, z: 100 }
+        ]
+    }
+};
 
-// --- Course Setup (Placeholders) ---
+// --- Course Setup --- 
 let currentCourseObjects = []; // Keep track of course objects for cleanup
-function createCourse(courseId) {
-    // TODO: Define 5 simple courses
-    // For now, just a flat plane as Course 1
-    console.log(`Creating course ${courseId}`);
 
-    // Load Road Texture
-    const roadTexture = textureLoader.load('textures/road.png');
+function createCourse(courseData) {
+    if (!courseData) {
+        console.error("No course data provided to createCourse!");
+        // Optionally load a default course
+        courseData = courseLayouts[1]; // Fallback to course 1
+    }
+    console.log(`Creating course: ${courseData.name}`);
+
+    // --- Create Ground Plane --- 
+    const roadTexture = textureLoader.load(courseData.roadTexturePath || 'textures/road.png');
     roadTexture.wrapS = THREE.RepeatWrapping;
     roadTexture.wrapT = THREE.RepeatWrapping;
-    const textureRepeatX = 10; // How many times to repeat horizontally
-    const textureRepeatY = 20; // How many times to repeat vertically
-    roadTexture.repeat.set( textureRepeatX, textureRepeatY );
+    const repeatX = courseData.textureRepeat?.x || 10;
+    const repeatY = courseData.textureRepeat?.y || 10;
+    roadTexture.repeat.set(repeatX, repeatY);
 
-    const planeGeometry = new THREE.PlaneGeometry(100, 200); // Example size
-    // const planeMaterial = new THREE.MeshStandardMaterial({ color: 0x55aa55, side: THREE.DoubleSide }); // Use StandardMaterial for lighting
+    const planeSize = courseData.planeSize || { width: 100, height: 100 };
+    const planeGeometry = new THREE.PlaneGeometry(planeSize.width, planeSize.height);
     const planeMaterial = new THREE.MeshStandardMaterial({
          map: roadTexture,
          side: THREE.DoubleSide
     });
     const plane = new THREE.Mesh(planeGeometry, planeMaterial);
-    plane.rotation.x = -Math.PI / 2; // Rotate to be horizontal
-    plane.position.y = 0; // Set plane at ground level
-    plane.receiveShadow = true; // Allow ground to receive shadows
+    plane.rotation.x = -Math.PI / 2; 
+    plane.position.y = 0; 
+    plane.receiveShadow = true; 
     scene.add(plane);
-    currentCourseObjects.push(plane); // Track for cleanup
+    currentCourseObjects.push(plane);
 
-    // Add some simple boundaries?
-    const wallHeight = 3;
-    const wallThickness = 1;
-    const wallMaterial = new THREE.MeshStandardMaterial({color: 0x888888}); // Use StandardMaterial
-    const wallLeftGeo = new THREE.BoxGeometry(wallThickness, wallHeight, 200);
-    const wallLeft = new THREE.Mesh(wallLeftGeo, wallMaterial);
-    wallLeft.position.set(-50 - wallThickness/2, wallHeight/2, 0);
-    wallLeft.castShadow = true;
-    wallLeft.receiveShadow = true;
-    scene.add(wallLeft);
-    currentCourseObjects.push(wallLeft);
-
-    const wallRightGeo = new THREE.BoxGeometry(wallThickness, wallHeight, 200);
-    const wallRight = new THREE.Mesh(wallRightGeo, wallMaterial);
-    wallRight.position.set(50 + wallThickness/2, wallHeight/2, 0);
-    wallRight.castShadow = true;
-    wallRight.receiveShadow = true;
-    scene.add(wallRight);
-    currentCourseObjects.push(wallRight);
-
-     // Add more course elements here based on courseId
-}
-
-function cleanupRaceScene() {
-     console.log("Cleaning up race scene...");
-     // Stop animation loop
-     if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-        animationFrameId = null;
-     }
-     // Remove all player objects
-     Object.keys(playerObjects).forEach(id => removePlayerObject(id));
-     playerObjects = {};
-     // Remove course objects
-     currentCourseObjects.forEach(obj => {
-         scene.remove(obj);
-         if (obj.geometry) obj.geometry.dispose();
-         if (obj.material) {
-             // Dispose textures only if they are not shared/cached?
-             // Check if material has a map and if it's not in our character cache before disposing
-             if (obj.material.map && !Object.values(characterTextures).includes(obj.material.map)) {
-                 // obj.material.map.dispose(); // Dispose non-character textures if needed
-             }
-             obj.material.dispose();
-         }
-     });
-     currentCourseObjects = [];
-     // Remove lights
-     let lightsToRemove = [];
-      scene.traverse(child => {
-         if (child.isLight) {
-             lightsToRemove.push(child);
-         }
-      });
-      lightsToRemove.forEach(light => scene.remove(light));
-
-      // Disable shadows on renderer? Optional.
-      // renderer.shadowMap.enabled = false;
-
-     raceInitialized = false; // Mark scene as not initialized
-}
-
-
-// --- Race Initialization ---
-function initializeRaceScene() {
-    console.log("Initializing race scene...");
-    // Clear any potential remnants from previous states
-    if (raceInitialized) { // Avoid redundant cleanup if already clean
-         cleanupRaceScene();
+    // --- Create Walls --- 
+    const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x888888 }); // Reusable material
+    if (courseData.walls && Array.isArray(courseData.walls)) {
+        courseData.walls.forEach(wallData => {
+            if (wallData.type === 'box') { // Extend this for other wall types later
+                const size = wallData.size || { x: 1, y: 1, z: 1 };
+                const position = wallData.position || { x: 0, y: 0.5, z: 0 };
+                const geometry = new THREE.BoxGeometry(size.x, size.y, size.z);
+                const wallMesh = new THREE.Mesh(geometry, wallMaterial);
+                wallMesh.position.set(position.x, position.y, position.z);
+                // Apply rotation if specified in wallData (e.g., wallData.rotation = { x: 0, y: Math.PI/4, z: 0 })
+                if(wallData.rotation) {
+                     wallMesh.rotation.set(
+                         wallData.rotation.x || 0,
+                         wallData.rotation.y || 0,
+                         wallData.rotation.z || 0
+                     );
+                }
+                wallMesh.castShadow = true;
+                wallMesh.receiveShadow = true;
+                scene.add(wallMesh);
+                currentCourseObjects.push(wallMesh);
+            } 
+            // Add else if for cylinders, custom shapes etc.
+        });
     }
 
-    raceInitialized = true; // Set flag immediately
+    // Add more course elements based on courseData (e.g., item boxes, boost pads)
+}
 
-    // Add lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); // Adjusted intensity
+// --- Race Initialization ---
+function initializeRaceScene(receivedGameState) { 
+    console.log("Initializing race scene...");
+    if (raceInitialized) { 
+         cleanupRaceScene();
+    }
+    raceInitialized = true;
+
+    // ... (lighting setup remains the same) ...
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); 
     scene.add(ambientLight);
-    // No need to track ambient light for removal if we remove all lights in cleanup
-
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8); // Adjusted intensity
-    directionalLight.position.set(10, 20, 15); // Adjusted position
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(10, 20, 15);
     directionalLight.castShadow = true;
-    // Configure shadow map resolution if needed
-    // directionalLight.shadow.mapSize.width = 1024;
-    // directionalLight.shadow.mapSize.height = 1024;
     scene.add(directionalLight);
-    // No need to track directional light individually
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-     // Enable shadows on the renderer
-     renderer.shadowMap.enabled = true;
-     renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer shadows
+    // --- Load Course based on received data OR local selection --- 
+    let courseIdToLoad = localSelectedCourseId; // Default to local selection
+    
+    // If we received actual state from a server, prefer that (for future use)
+    if (receivedGameState && receivedGameState.race && receivedGameState.race.courseId !== undefined) {
+        courseIdToLoad = receivedGameState.race.courseId;
+        console.log("Loading course based on received state:", courseIdToLoad);
+    } else {
+        console.log("Loading course based on local selection:", courseIdToLoad);
+    }
 
+    let courseDataToLoad = courseLayouts[courseIdToLoad];
+    if (!courseDataToLoad) {
+         console.warn(`Course ID ${courseIdToLoad} not found in layouts, loading default Course 1.`);
+         courseDataToLoad = courseLayouts[1];
+    }
+    createCourse(courseDataToLoad); // Pass the selected layout data
 
-    // TODO: Load the selected course based on server info (gameState.race.courseId)
-    // For now, always load course 1
-    createCourse(1); // Assuming gameState.race.courseId is available, or use default
-
-    // Add player objects for players already in the game state
-    console.log("Adding initial player objects:", players);
-    updatePlayerObjects(); // Creates sprites with initial 'b' angle
-
-    // Position camera behind the local player (initial setup)
-    setupInitialCameraPosition(); // May need adjustment after first frame render
-
-    // Update sprite angles based on initial camera position
+    console.log("Adding initial player objects:", players); // Use current players data
+    updatePlayerObjects();
+    setupInitialCameraPosition();
     updateAllSpriteAngles();
-
-    // Animation loop is started by the updateGameState handler when state becomes 'racing' or 'waiting'
 }
 
 function setupInitialCameraPosition() {
@@ -862,6 +1112,7 @@ function setupInitialCameraPosition() {
 // --- Game Loop ---
 let animationFrameId = null;
 const lerpFactor = 0.15; // Smoothing factor for remote player movement
+let frameCount = 0; // Initialize frame counter
 
 function animate() {
     // Loop should continue as long as race is initialized (racing or spectator)
@@ -870,6 +1121,7 @@ function animate() {
         return;
     };
     animationFrameId = requestAnimationFrame(animate);
+    frameCount++; // Increment frame counter
 
     // --- Update Remote Player Positions (Lerp) ---
      for (const playerId in playerObjects) {
@@ -880,20 +1132,18 @@ function animate() {
 
     // Only run driving logic if actually racing and local player exists
     if (currentGameState === 'racing' && localPlayerId && players[localPlayerId]) {
-        // --- Input Handling ---
-        handleDrivingInput(); // Updates local player's position/rotation in `players` state and visual object
-
-        // --- Player Updates (Sending local player's state) ---
+        handleDrivingInput();
         sendLocalPlayerUpdate();
     }
 
-     // --- Camera Update (Always update if racing/spectating) ---
-    updateCameraPosition(); // Make camera follow the local player smoothly
+    updateCameraPosition();
+    updateAllSpriteAngles();
 
-     // --- Update Sprite Angles based on Camera ---
-     updateAllSpriteAngles();
+    // --- Update Visual Effects ---
+    updateDriftParticles(localPlayerId); // Update local player's particles
+    updateBoostFlame(localPlayerId, Date.now()); // Update local player's flame
+    // TODO: Update effects for remote players based on server state if needed
 
-    // --- Render Scene ---
     renderer.render(scene, camera);
 }
 
@@ -903,5 +1153,167 @@ function updateAllSpriteAngles() {
         if (players[playerId]) { // Ensure player data exists
             updatePlayerSpriteAngle(playerId, playerObjects[playerId], players[playerId]);
         }
+    }
+}
+
+// --- Visual Effects Update ---
+
+// Temporary vectors for particle calculations
+const particleEmitterOffset = new THREE.Vector3(0, -0.1, -0.5); // Keep emitter low
+const particleWorldOffset = new THREE.Vector3();
+const particleEmitterPosition = new THREE.Vector3();
+const particlePlayerRight = new THREE.Vector3();
+const particleSpreadOffset = new THREE.Vector3();
+
+function updateDriftParticles(playerId) {
+    if (!playerVisuals[playerId] || !players[playerId] || !playerObjects[playerId]) return;
+
+    const { driftParticles } = playerVisuals[playerId];
+    const playerData = players[playerId];
+    const playerSprite = playerObjects[playerId];
+
+    const isDrifting = (playerId === localPlayerId) && (localPlayerDriftState.state === 'driftingLeft' || localPlayerDriftState.state === 'driftingRight');
+
+    // --- Set Particle Color based on Mini-Turbo Level ---
+    if (playerId === localPlayerId) {
+        const level = localPlayerDriftState.miniTurboLevel;
+        let targetColor = 0xffffff; // Default: White
+        if (level === 1) {
+            targetColor = 0xff0000; // Level 1: Red
+        } else if (level >= 2) {
+            targetColor = 0x0000ff; // Level 2: Blue
+        }
+        // Check if color needs updating to avoid unnecessary material updates
+        if (particlesMaterial.color.getHex() !== targetColor) {
+             particlesMaterial.color.setHex(targetColor);
+        }
+    } else {
+         // Ensure non-local players' potential (but invisible) particles use default if logic changes
+         if (particlesMaterial.color.getHex() !== 0xffffff) {
+              particlesMaterial.color.setHex(0xffffff);
+         }
+    }
+
+    driftParticles.visible = isDrifting;
+
+    if (driftParticles.visible) {
+        const playerRotationY = playerData.rotation?.y || 0;
+
+        // 1. Calculate Emitter World Position & Rotation
+        particleWorldOffset.copy(particleEmitterOffset).applyAxisAngle(THREE.Object3D.DEFAULT_UP, playerRotationY);
+        particleEmitterPosition.copy(playerSprite.position).add(particleWorldOffset);
+        particleEmitterPosition.y = particleEmitterOffset.y; // Use the LOWERED offset Y (-0.1)
+        driftParticles.position.copy(particleEmitterPosition);
+        driftParticles.rotation.y = playerRotationY; // RE-ENABLED emitter rotation
+
+        // 2. Calculate Player's World Right Vector (needed for initial spread)
+        particlePlayerRight.set(1, 0, 0).applyAxisAngle(THREE.Object3D.DEFAULT_UP, playerRotationY);
+
+        // 3. Update Individual Particles (Testing inverted local axes)
+        const positions = driftParticles.geometry.attributes.position.array;
+        const particleSpeed = 0.1 + Math.random() * 0.1;
+        const spread = 1.0; // Increased spread width
+        const maxParticleDist = 2.5; // Max distance along local Z
+        const velocityFactor = (playerData.velocity > 0 ? playerData.velocity / MAX_SPEED : 0.5);
+        const sidewaysDriftFactor = 0.02;
+
+        for (let i = 0; i < positions.length; i += 3) {
+            // Reset based on distance along local Z (assuming it's visually forward now)
+            if (positions[i+2] > maxParticleDist || Math.random() < 0.05) { // Check positive distance
+                 // Reset particle: Spread local X, slightly positive initial Y (visually down?)
+                 const randomSpread = (Math.random() - 0.5) * spread;
+                 positions[i]   = randomSpread; // Local X
+                 positions[i+1] = (Math.random() * 0.05); // Start slightly positive Y (visually down?)
+                 positions[i+2] = (Math.random() - 0.5) * 0.1; // Start near Z=0
+            } else {
+                // Move particles "backward" (local +Z, visually backward?)
+                positions[i+2] += particleSpeed * velocityFactor;
+
+                 // Sideways drift (local X)
+                 const driftAmount = localPlayerDriftState.direction * sidewaysDriftFactor * velocityFactor;
+                 positions[i] += driftAmount;
+
+                 // Add "downward" movement (local +Y, visually down?)
+                 positions[i+1] += 0.01; // ADDING to Y
+            }
+        }
+        driftParticles.geometry.attributes.position.needsUpdate = true;
+    }
+}
+
+let flameAnimationIndex = 0;
+let lastFlameUpdateTime = 0;
+const FLAME_ANIMATION_SPEED = 50; // ms per frame
+const FLAME_LOOP_START_INDEX = 4; // flame5
+
+// Temporary vectors for calculations
+const playerForwardFlame = new THREE.Vector3(0, 0, -1);
+const flameTargetPosition = new THREE.Vector3();
+const flameOffsetDistance = -0.6; // How far behind the player center
+const flameYPosition = 0.02; // Keep flame low, slightly increased to avoid z-fighting with road
+
+function updateBoostFlame(playerId, now) {
+    if (!playerVisuals[playerId] || !players[playerId] || !playerObjects[playerId]) return;
+
+    const { boostFlame } = playerVisuals[playerId];
+    const playerSprite = playerObjects[playerId];
+    const playerData = players[playerId];
+
+    const isBoosting = (playerId === localPlayerId) && (now < boostEndTime);
+    // Get the boost level that triggered this boost (stored when boost starts)
+    const boostLevel = boostTriggerLevel; 
+
+    boostFlame.visible = isBoosting;
+
+    if (isBoosting) {
+        // Calculate target position based on player's actual rotation
+        const playerRotationY = playerData.rotation?.y || 0;
+        playerForwardFlame.set(0, 0, -1); // Reset base forward
+        playerForwardFlame.applyAxisAngle(THREE.Object3D.DEFAULT_UP, playerRotationY); // Apply player's Y rotation
+
+        flameTargetPosition.copy(playerSprite.position); // Start at sprite center (which includes Y offset)
+        flameTargetPosition.addScaledVector(playerForwardFlame, flameOffsetDistance); // Move backward along player's forward
+        flameTargetPosition.y = flameYPosition; // Set fixed low Y position
+
+        boostFlame.position.copy(flameTargetPosition);
+
+        // --- Tint flame based on boost level ---
+        let targetColor = 0xffffff; // Default: White/Yellowish flame
+        if (boostLevel >= 2) {
+             targetColor = 0x6666ff; // Level 2 Boost: More intense Blue Tint
+        }
+        if (boostFlame.material.color.getHex() !== targetColor) {
+             boostFlame.material.color.setHex(targetColor);
+             boostFlame.material.needsUpdate = true;
+        }
+
+        // Animate texture
+        if (now - lastFlameUpdateTime > FLAME_ANIMATION_SPEED) {
+            flameAnimationIndex++;
+            let textureIndex;
+            if (flameAnimationIndex < flameTextures.length) {
+                textureIndex = flameAnimationIndex;
+            } else {
+                // Loop between flame5, flame6, flame7 (indices 4, 5, 6)
+                const loopIndex = (flameAnimationIndex - FLAME_LOOP_START_INDEX) % (flameTextures.length - FLAME_LOOP_START_INDEX);
+                textureIndex = FLAME_LOOP_START_INDEX + loopIndex;
+            }
+
+            if (flameTextures[textureIndex]) {
+                boostFlame.material.map = flameTextures[textureIndex];
+                boostFlame.material.needsUpdate = true;
+            } else {
+                 console.warn(`Missing flame texture for index: ${textureIndex}`);
+            }
+            lastFlameUpdateTime = now;
+        }
+    } else {
+        // Reset color and animation when not boosting
+        if (boostFlame.material.color.getHex() !== 0xffffff) {
+            boostFlame.material.color.setHex(0xffffff);
+            boostFlame.material.needsUpdate = true;
+        }
+        flameAnimationIndex = 0; 
+        boostTriggerLevel = 0; // Reset the trigger level
     }
 } 
