@@ -456,10 +456,206 @@ function calculateSpriteAngleIndex(sprite, playerData) {
     return final_index;
 }
 
+// --- Input Handling ---
+const keyStates = {}; // Keep track of pressed keys
+let leftTurnStartTime = 0;
+let rightTurnStartTime = 0;
+const TURN_SPRITE_DELAY = 500; // Milliseconds to hold turn before sprite changes (0.5 seconds)
+
+window.addEventListener('keydown', (event) => {
+    const key = event.key.toLowerCase();
+    if (!keyStates[key]) { // Keydown event fires repeatedly, only trigger on first press
+        keyStates[key] = true;
+        if (key === 'a' || key === 'arrowleft') {
+            leftTurnStartTime = Date.now();
+            rightTurnStartTime = 0; // Reset other direction timer
+        } else if (key === 'd' || key === 'arrowright') {
+            rightTurnStartTime = Date.now();
+            leftTurnStartTime = 0; // Reset other direction timer
+        }
+    }
+});
+window.addEventListener('keyup', (event) => {
+    const key = event.key.toLowerCase();
+    keyStates[key] = false;
+    if (key === 'a' || key === 'arrowleft') {
+        leftTurnStartTime = 0;
+    } else if (key === 'd' || key === 'arrowright') {
+        rightTurnStartTime = 0;
+    }
+});
+
+// Driving Physics Constants
+const ACCELERATION = 0.01;
+const DECELERATION = 0.008; // Friction
+const BRAKING_FORCE = 0.015;
+const MAX_SPEED = 0.4;
+const MAX_REVERSE_SPEED = -0.1;
+const TURN_SPEED_BASE = 0.025; // Reduced base turn speed for wider turns
+const TURN_SPEED_VELOCITY_FACTOR = 0; // Turn speed now constant
+
+function handleDrivingInput() {
+    if (!localPlayerId || !playerObjects[localPlayerId] || !players[localPlayerId]) return;
+
+    const player = players[localPlayerId];
+    const playerObject = playerObjects[localPlayerId];
+
+    // Initialize physics state if missing
+    if (player.velocity === undefined) {
+        player.velocity = 0; // Current forward/backward speed
+    }
+    // Initialize position and rotation in local state if missing (should be set by server)
+    if (!player.position) {
+        player.position = { x: playerObject.position.x, y: playerObject.position.y - playerSpriteScale / 2, z: playerObject.position.z };
+        console.warn("Local player state initialized position from object");
+    }
+    if (!player.rotation) {
+        player.rotation = { y: 0 };
+        console.warn("Local player state initialized rotation");
+    }
+
+    let deltaRotation = 0;
+    let rotationChanged = false;
+    let positionChanged = false;
+
+    // --- Rotation ---
+    // Determine base turn direction based on keys
+    let intendedTurnDirection = 0; // 1 for left, -1 for right
+    if (keyStates['a'] || keyStates['arrowleft']) {
+        intendedTurnDirection = 1;
+    } else if (keyStates['d'] || keyStates['arrowright']) {
+        intendedTurnDirection = -1;
+    }
+
+    // Apply turn if a direction is intended
+    if (intendedTurnDirection !== 0) {
+        // Invert direction if reversing
+        const actualTurnDirection = (player.velocity < 0) ? -intendedTurnDirection : intendedTurnDirection;
+        deltaRotation = actualTurnDirection * TURN_SPEED_BASE; // Apply base turn speed
+
+        player.rotation.y = (player.rotation.y + deltaRotation);
+        player.rotation.y = (player.rotation.y + Math.PI * 2) % (Math.PI * 2); // Normalize
+        rotationChanged = true;
+    }
+
+    // --- Acceleration / Deceleration ---
+    if (keyStates['w'] || keyStates['arrowup']) {
+        player.velocity += ACCELERATION;
+        player.velocity = Math.min(player.velocity, MAX_SPEED); // Clamp to max speed
+    } else if (keyStates['s'] || keyStates['arrowdown']) {
+        player.velocity -= BRAKING_FORCE;
+        player.velocity = Math.max(player.velocity, MAX_REVERSE_SPEED); // Clamp to max reverse speed
+    } else {
+        // Apply friction/deceleration only if velocity is not zero
+        if (player.velocity > 0) {
+            player.velocity -= DECELERATION;
+            player.velocity = Math.max(0, player.velocity); // Don't go below zero
+        } else if (player.velocity < 0) {
+            player.velocity += DECELERATION;
+            player.velocity = Math.min(0, player.velocity); // Don't go above zero
+        }
+    }
+
+     // --- Update Position ---
+     if (Math.abs(player.velocity) > 0.001) { // Only move if velocity is significant
+         // Calculate movement vector based on current velocity and rotation
+         const moveDirection = new THREE.Vector3(0, 0, -1); // Base forward vector (-Z)
+         moveDirection.applyAxisAngle(THREE.Object3D.DEFAULT_UP, player.rotation.y);
+         moveDirection.multiplyScalar(player.velocity); // Apply speed
+
+         player.position.x += moveDirection.x;
+         player.position.y += moveDirection.y; // Should be 0 for flat ground
+         player.position.z += moveDirection.z;
+         positionChanged = true;
+     }
+
+    // Update the visual object immediately for responsiveness if necessary
+     if (positionChanged) { // Only need to update visuals if position changed
+          updatePlayerObjectTransform(localPlayerId, player.position, player.rotation);
+          // Visual rotation update happens via updatePlayerSpriteAngle called in animate()
+     }
+}
+
+
+function updateCameraPosition() {
+    // Make the camera follow the localPlayerObject smoothly
+    if (localPlayerId && playerObjects[localPlayerId] && players[localPlayerId]) {
+        const target = playerObjects[localPlayerId];
+        const playerRotationY = players[localPlayerId].rotation?.y || 0;
+
+        // Calculate desired camera position based on player's current rotation
+        const offset = new THREE.Vector3(0, 4, 8); // Base offset (Up, Back)
+        offset.applyAxisAngle(THREE.Object3D.DEFAULT_UP, playerRotationY);
+
+        const cameraTargetPosition = target.position.clone().add(offset);
+        // Look slightly above the sprite's base position
+        const lookAtTarget = target.position.clone().add(new THREE.Vector3(0, playerSpriteScale * 0.5, 0));
+
+        // Smoother camera using lerp
+        const cameraLerpFactor = 0.15; // INCREASED for stiffer follow
+        camera.position.lerp(cameraTargetPosition, cameraLerpFactor);
+
+        // Make camera look directly at the target point above the kart
+        camera.lookAt(lookAtTarget);
+
+    } else if (raceInitialized) { // Keep spectator cam if race is running but local player gone/waiting
+         // Simple rotating camera for spectator mode?
+         const time = Date.now() * 0.0001;
+         camera.position.x = Math.sin(time) * 40;
+         camera.position.z = Math.cos(time) * 40;
+         camera.position.y = 20;
+         camera.lookAt(0, 0, 0); // Look at center of track
+    }
+     camera.updateMatrixWorld(); // Ensure camera's matrix is updated for next frame's calculations
+}
+
+let lastUpdateTime = 0;
+const updateInterval = 100; // Send updates every 100ms (10 times per second)
+
+function sendLocalPlayerUpdate() {
+    const now = Date.now();
+    // Check player data existence before sending
+    if (now - lastUpdateTime > updateInterval && localPlayerId && players[localPlayerId] && players[localPlayerId].position && players[localPlayerId].rotation) {
+        const playerState = players[localPlayerId];
+        // Send only necessary data (position and rotation)
+        const updateData = {
+            position: playerState.position,
+            rotation: playerState.rotation,
+        };
+
+        socket.emit('playerUpdateState', updateData);
+        lastUpdateTime = now;
+    }
+}
+
+// --- Initialization ---
+console.log("Client script loaded. Waiting for server connection...");
+// Initial setup (like character selection) is now triggered by the first 'updateGameState' from the server.
+// The animate() loop is started only when the game state becomes 'racing' or 'waiting'.
+
+console.log("Client script loaded. Waiting for server connection...");
+
 function updatePlayerSpriteAngle(playerId, sprite, playerData) {
     if (!sprite || !sprite.userData || !playerData) return;
 
-    const newAngleIndex = calculateSpriteAngleIndex(sprite, playerData);
+    let newAngleIndex;
+
+    if (playerId === localPlayerId) {
+        // For local player, check turn key hold duration
+        const now = Date.now();
+        if ((keyStates['a'] || keyStates['arrowleft']) && leftTurnStartTime && (now - leftTurnStartTime > TURN_SPRITE_DELAY)) {
+            newAngleIndex = 5; // Force 'bl' sprite after delay
+        } else if ((keyStates['d'] || keyStates['arrowright']) && rightTurnStartTime && (now - rightTurnStartTime > TURN_SPRITE_DELAY)) {
+            newAngleIndex = 3; // Force 'br' sprite after delay
+        } else {
+            // If not turning long enough or not turning, use camera vs facing angle
+            newAngleIndex = calculateSpriteAngleIndex(sprite, playerData);
+        }
+    } else {
+        // For remote players, use camera vs facing angle
+        newAngleIndex = calculateSpriteAngleIndex(sprite, playerData);
+    }
+
     const newAngleCode = characterSpriteAngles[newAngleIndex];
 
     // Only update texture if the angle code has changed
@@ -472,15 +668,6 @@ function updatePlayerSpriteAngle(playerId, sprite, playerData) {
             // console.log(`Player ${playerId} changed angle to ${newAngleCode} (${newAngleIndex})`);
         } else if (!newTexture) {
              console.warn(`Failed to get texture for angle ${newAngleCode} for player ${playerId}`);
-        }
-    }
-}
-
-function updateAllSpriteAngles() {
-    camera.updateMatrixWorld(); // Ensure camera matrix is up-to-date before calculations
-    for (const playerId in playerObjects) {
-        if (players[playerId]) { // Ensure player data exists
-            updatePlayerSpriteAngle(playerId, playerObjects[playerId], players[playerId]);
         }
     }
 }
@@ -520,8 +707,21 @@ function createCourse(courseId) {
     // TODO: Define 5 simple courses
     // For now, just a flat plane as Course 1
     console.log(`Creating course ${courseId}`);
+
+    // Load Road Texture
+    const roadTexture = textureLoader.load('textures/road.png');
+    roadTexture.wrapS = THREE.RepeatWrapping;
+    roadTexture.wrapT = THREE.RepeatWrapping;
+    const textureRepeatX = 10; // How many times to repeat horizontally
+    const textureRepeatY = 20; // How many times to repeat vertically
+    roadTexture.repeat.set( textureRepeatX, textureRepeatY );
+
     const planeGeometry = new THREE.PlaneGeometry(100, 200); // Example size
-    const planeMaterial = new THREE.MeshStandardMaterial({ color: 0x55aa55, side: THREE.DoubleSide }); // Use StandardMaterial for lighting
+    // const planeMaterial = new THREE.MeshStandardMaterial({ color: 0x55aa55, side: THREE.DoubleSide }); // Use StandardMaterial for lighting
+    const planeMaterial = new THREE.MeshStandardMaterial({
+         map: roadTexture,
+         side: THREE.DoubleSide
+    });
     const plane = new THREE.Mesh(planeGeometry, planeMaterial);
     plane.rotation.x = -Math.PI / 2; // Rotate to be horizontal
     plane.position.y = 0; // Set plane at ground level
@@ -697,144 +897,11 @@ function animate() {
     renderer.render(scene, camera);
 }
 
-// --- Input Handling ---
-const keyStates = {}; // Keep track of pressed keys
-window.addEventListener('keydown', (event) => { keyStates[event.key.toLowerCase()] = true; });
-window.addEventListener('keyup', (event) => { keyStates[event.key.toLowerCase()] = false; });
-
-function handleDrivingInput() {
-    if (!localPlayerId || !playerObjects[localPlayerId] || !players[localPlayerId]) return;
-
-    const player = players[localPlayerId];
-    const playerObject = playerObjects[localPlayerId];
-    let moved = false;
-    let positionChanged = false;
-    let rotationChanged = false;
-
-    // Simple movement example (replace with proper physics later)
-    const moveSpeed = 0.15;
-    const turnSpeed = 0.03;
-
-    let deltaRotation = 0;
-    let deltaPosition = new THREE.Vector3();
-
-    // Initialize position and rotation in local state if missing (should be set by server)
-    if (!player.position) {
-        player.position = { x: playerObject.position.x, y: playerObject.position.y - playerSpriteScale / 2, z: playerObject.position.z };
-        console.warn("Local player state initialized position from object");
-    }
-    if (!player.rotation) {
-        player.rotation = { y: 0 };
-        console.warn("Local player state initialized rotation");
-    }
-
-
-    if (keyStates['w'] || keyStates['arrowup']) {
-        deltaPosition.z -= moveSpeed; // Move along local Z (using Three.js convention: -Z is forward)
-        moved = true;
-    }
-    if (keyStates['s'] || keyStates['arrowdown']) {
-        deltaPosition.z += moveSpeed * 0.7; // Slower backward movement
-        moved = true;
-    }
-    if (keyStates['a'] || keyStates['arrowleft']) {
-        deltaRotation += turnSpeed;
-        moved = true;
-    }
-    if (keyStates['d'] || keyStates['arrowright']) {
-        deltaRotation -= turnSpeed;
-        moved = true;
-    }
-
-    if (moved) {
-        // Apply rotation change
-        if (deltaRotation !== 0) {
-            player.rotation.y = (player.rotation.y + deltaRotation);
-            // Normalize Y rotation to [-PI, PI] or [0, 2*PI] - using [0, 2*PI] for consistency with angle calc
-             player.rotation.y = (player.rotation.y + Math.PI * 2) % (Math.PI * 2);
-            rotationChanged = true;
-        }
-
-        // Apply position change based on new rotation
-        if (deltaPosition.lengthSq() > 0) { // Only move if there's displacement
-             // Apply rotation to the movement vector
-             const moveVector = deltaPosition.clone().applyAxisAngle(THREE.Object3D.DEFAULT_UP, player.rotation.y);
-
-             player.position.x += moveVector.x;
-             player.position.y += moveVector.y; // Should remain 0 for flat ground
-             player.position.z += moveVector.z;
-             positionChanged = true;
-        }
-
-        // Update the visual object immediately for responsiveness
-        if (positionChanged || rotationChanged) {
-             updatePlayerObjectTransform(localPlayerId, player.position, player.rotation);
-             // Note: Visual rotation update happens via updatePlayerSpriteAngle called in animate()
+function updateAllSpriteAngles() {
+    camera.updateMatrixWorld(); // Ensure camera matrix is up-to-date before calculations
+    for (const playerId in playerObjects) {
+        if (players[playerId]) { // Ensure player data exists
+            updatePlayerSpriteAngle(playerId, playerObjects[playerId], players[playerId]);
         }
     }
-}
-
-
-function updateCameraPosition() {
-    // Make the camera follow the localPlayerObject smoothly
-    if (localPlayerId && playerObjects[localPlayerId] && players[localPlayerId]) {
-        const target = playerObjects[localPlayerId];
-        const playerRotationY = players[localPlayerId].rotation?.y || 0;
-
-        // Calculate desired camera position based on player's current rotation
-        const offset = new THREE.Vector3(0, 4, 8); // Base offset (Up, Back)
-        offset.applyAxisAngle(THREE.Object3D.DEFAULT_UP, playerRotationY);
-
-        const cameraTargetPosition = target.position.clone().add(offset);
-        // Look slightly above the sprite's base position
-        const lookAtTarget = target.position.clone().add(new THREE.Vector3(0, playerSpriteScale * 0.5, 0));
-
-        // Smoother camera using lerp
-        const cameraLerpFactor = 0.08; // Adjust for camera responsiveness
-        camera.position.lerp(cameraTargetPosition, cameraLerpFactor);
-
-        // Lerp the lookAt target for smoother rotation following
-        const lookAtLerpFactor = cameraLerpFactor * 1.5; // LookAt can be slightly faster
-         const currentLookAt = new THREE.Vector3();
-         // Get the point the camera is currently looking at
-         camera.getWorldDirection(currentLookAt).multiplyScalar(10).add(camera.position); // Project forward
-         currentLookAt.lerp(lookAtTarget, lookAtLerpFactor);
-         camera.lookAt(currentLookAt);
-
-
-    } else if (raceInitialized) { // Keep spectator cam if race is running but local player gone/waiting
-         // Simple rotating camera for spectator mode?
-         const time = Date.now() * 0.0001;
-         camera.position.x = Math.sin(time) * 40;
-         camera.position.z = Math.cos(time) * 40;
-         camera.position.y = 20;
-         camera.lookAt(0, 0, 0); // Look at center of track
-    }
-     camera.updateMatrixWorld(); // Ensure camera's matrix is updated for next frame's calculations
-}
-
-let lastUpdateTime = 0;
-const updateInterval = 100; // Send updates every 100ms (10 times per second)
-
-function sendLocalPlayerUpdate() {
-    const now = Date.now();
-    // Check player data existence before sending
-    if (now - lastUpdateTime > updateInterval && localPlayerId && players[localPlayerId] && players[localPlayerId].position && players[localPlayerId].rotation) {
-        const playerState = players[localPlayerId];
-        // Send only necessary data (position and rotation)
-        const updateData = {
-            position: playerState.position,
-            rotation: playerState.rotation,
-        };
-
-        socket.emit('playerUpdateState', updateData);
-        lastUpdateTime = now;
-    }
-}
-
-// --- Initialization ---
-console.log("Client script loaded. Waiting for server connection...");
-// Initial setup (like character selection) is now triggered by the first 'updateGameState' from the server.
-// The animate() loop is started only when the game state becomes 'racing' or 'waiting'.
-
-console.log("Client script loaded. Waiting for server connection..."); 
+} 
