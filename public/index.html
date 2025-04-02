@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Newrio Kart</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="game-container"></div>
+    <div id="character-selection" class="overlay">
+        <h1>Choose Your Racer!</h1>
+        <div id="character-grid"></div>
+        <p id="selected-character-name"></p>
+    </div>
+    <div id="waiting-screen" class="overlay" style="display: none;">
+        <h1>Waiting for next race...</h1>
+    </div>
+    <script src="/socket.io/socket.io.js"></script>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+            }
+        }
+    </script>
+    <script type="module" src="client.js"></script>
+</body>
+</html> 
