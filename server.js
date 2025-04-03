@@ -100,6 +100,7 @@ function endRace() {
 
 // Serve static files from the "public" directory
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/node_modules', express.static(path.join(__dirname, 'node_modules')));
 
 // Handle root route to serve index.html
 app.get('/', (req, res) => {

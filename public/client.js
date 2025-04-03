@@ -1,15 +1,38 @@
-import * as THREE from 'three';
+import * as THREE from '/node_modules/three/build/three.module.js';
+// Use local paths now that 'three' is installed
+import { EffectComposer } from '/node_modules/three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from '/node_modules/three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from '/node_modules/three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from '/node_modules/three/examples/jsm/postprocessing/OutputPass.js';
 
 // --- Basic Setup ---
 const socket = io();
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer();
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.6;
 renderer.setSize(window.innerWidth, window.innerHeight);
 // Ensure renderer preserves pixelated style if desired
 renderer.setPixelRatio(window.devicePixelRatio); // Adjust for high DPI screens if needed
 renderer.domElement.style.imageRendering = 'pixelated'; // CSS approach
 document.getElementById('game-container').appendChild(renderer.domElement);
+
+let composer; // Declare composer globally
+
+// Post-processing setup
+composer = new EffectComposer(renderer);
+const renderPass = new RenderPass(scene, camera);
+composer.addPass(renderPass);
+
+// strength, radius, threshold - tweak these values for desired bloom effect
+// const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.5, 0.1, 0);
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.4, 0.1, 0.85); // Adjusted threshold, strength
+composer.addPass(bloomPass);
+
+const outputPass = new OutputPass(); // Handles final output color space/tone mapping
+composer.addPass(outputPass);
 
 window.addEventListener('resize', onWindowResize, false);
 
@@ -17,6 +40,7 @@ function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    composer.setSize(window.innerWidth, window.innerHeight); // Resize composer too
 }
 
 // --- Game State ---
@@ -41,6 +65,8 @@ const characters = {
     3: { name: "Bongo Blitz", baseSpritePath: "/Sprites/characters/3" },
     4: { name: "Krash Krawl", baseSpritePath: "/Sprites/characters/4" },
     5: { name: "Kara Krawl", baseSpritePath: "/Sprites/characters/5" },
+    6: { name: "Freddy", baseSpritePath: "/Sprites/characters/6" },
+    7: { name: "Laurette", baseSpritePath: "/Sprites/characters/7" },
 };
 
 const characterSpriteAngles = ['f', 'fr', 'r', 'br', 'b', 'bl', 'l', 'fl'];
@@ -110,39 +136,55 @@ function getCharacterTexture(characterId, angle = 'b') {
 
 
 let selectedCharacterIndex = 0;
-const characterIds = Object.keys(characters).map(Number);
+let characterIds; // Declare globally
 
 // --- Character Selection Logic ---
 function setupCharacterSelection() {
+    console.log("Running setupCharacterSelection..."); // Log: Function called
+    const characterGrid = document.getElementById('character-grid');
+    console.log("Character grid element:", characterGrid); // Log: Grid element found?
+    if (!characterGrid) { console.error("Character grid DIV not found!"); return; } // Early exit if grid missing
     characterGrid.innerHTML = ''; // Clear previous slots
+    console.log("Characters data:", characters); // Log: Characters object
+    characterIds = Object.keys(characters).map(Number); // Assign to global variable (remove const)
+    console.log("Character IDs:", characterIds); // Log: IDs array
     characterIds.forEach((id, index) => {
+        console.log(`[Loop ${index}] Processing character ID: ${id}`); // Log: Loop iteration
         const char = characters[id];
+        console.log(`[Loop ${index}] Character data:`, char);
+        if (!char) {
+            console.error(`[Loop ${index}] Character data not found for ID: ${id}`);
+            return; // Skip this iteration if character data is missing
+        }
         const slot = document.createElement('div');
         slot.classList.add('character-slot');
         slot.dataset.characterId = id;
         slot.dataset.index = index;
+        console.log(`[Loop ${index}] Created slot:`, slot);
 
         const preview = document.createElement('img'); // Using img for simplicity now
         preview.classList.add('character-preview');
-        // Try loading the 'front' sprite for the selection screen preview
         const previewTexturePath = `${char.baseSpritePath}f.png`;
+        console.log(`[Loop ${index}] Preview image path:`, previewTexturePath);
         preview.src = previewTexturePath;
         preview.alt = char.name;
         preview.onerror = () => { // Handle missing images gracefully
-            console.warn(`Preview sprite not found: ${preview.src}`);
+            console.error(`[Loop ${index}] ERROR loading preview image: ${preview.src}`); // Log error specifically
             preview.alt = `${char.name} (Image Missing)`;
-           // Maybe display a placeholder or the name text
-           preview.style.backgroundColor = '#555'; // Placeholder background
+           preview.style.backgroundColor = '#555';
            preview.style.border = '1px dashed white';
         };
+        console.log(`[Loop ${index}] Created preview image element:`, preview);
         slot.appendChild(preview);
 
         characterGrid.appendChild(slot);
+        console.log(`[Loop ${index}] Appended slot to characterGrid.`); // Log: Append confirmation
 
         slot.addEventListener('click', () => {
             selectCharacter(index);
         });
     });
+    console.log("Finished character selection loop."); // Log: Loop finished
     selectCharacter(selectedCharacterIndex); // Ensure initial selection highlight
     // updateCharacterSelectionHighlight(); // Called by selectCharacter
 }
@@ -262,25 +304,26 @@ socket.on('disconnect', () => {
 });
 
 socket.on('updateGameState', (newGameState, serverPlayers) => {
-    console.log("Received game state update:", newGameState, serverPlayers);
+    console.log("DEBUG: socket.on('updateGameState') received!"); // Log: Handler entry
+    console.log("DEBUG: Received newGameState:", newGameState);
     const oldGameState = currentGameState;
-    currentGameState = newGameState; // Update local state tracker
-    players = serverPlayers; // Update local player state copy
+    currentGameState = newGameState;
+    players = serverPlayers;
 
-    // Update UI based on state
     characterSelectionOverlay.style.display = (currentGameState === 'character-selection') ? 'flex' : 'none';
     waitingScreenOverlay.style.display = (currentGameState === 'waiting') ? 'flex' : 'none';
 
     if (currentGameState === 'character-selection') {
-        // If transitioning back to character selection, ensure scene is cleared and loop stopped
+        console.log("DEBUG: Entered 'character-selection' block."); // Log: Correct block entered?
         if (raceInitialized) {
              cleanupRaceScene();
         }
-        setupCharacterSelection(); // Re-setup selection screen
+        setupCharacterSelection();
         document.addEventListener('keydown', handleCharacterSelectionInput);
     } else {
+        console.log("DEBUG: Entered ELSE block (state is NOT 'character-selection')."); // Log: Incorrect block entered?
         document.removeEventListener('keydown', handleCharacterSelectionInput);
-         stopCharacterRotation(null, null); // Ensure rotation stops if state changes unexpectedly
+         stopCharacterRotation(null, null);
     }
 
     if (currentGameState === 'racing') {
@@ -1055,7 +1098,7 @@ function initializeRaceScene(receivedGameState) {
     raceInitialized = true;
 
     // ... (lighting setup remains the same) ...
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); 
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.2); // Reduced intensity from 0.6
     scene.add(ambientLight);
     const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
     directionalLight.position.set(10, 20, 15);
@@ -1144,7 +1187,7 @@ function animate() {
     updateBoostFlame(localPlayerId, Date.now()); // Update local player's flame
     // TODO: Update effects for remote players based on server state if needed
 
-    renderer.render(scene, camera);
+    composer.render(); // Render via EffectComposer
 }
 
 function updateAllSpriteAngles() {
