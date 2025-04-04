@@ -1,9 +1,9 @@
-import * as THREE from '/node_modules/three/build/three.module.js';
-// Use local paths now that 'three' is installed
-import { EffectComposer } from '/node_modules/three/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from '/node_modules/three/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from '/node_modules/three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from '/node_modules/three/examples/jsm/postprocessing/OutputPass.js';
+import * as THREE from 'three'; // Use the import map
+// Import addons using the mapped path
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 // --- Basic Setup ---
 const socket = io();
