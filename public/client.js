@@ -7,47 +7,28 @@ import { OutputPass } from '/node_modules/three/examples/jsm/postprocessing/Outp
 
 // --- Basic Setup ---
 const socket = io();
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+let scene = new THREE.Scene();
+let camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer();
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.6;
+renderer.toneMapping = THREE.LinearToneMapping; // Change tone mapping
+renderer.toneMappingExposure = 0.7; // Lower exposure slightly for Linear
+// renderer.setClearColor(0x111111, 1); // <<< Remove this
+// renderer.autoClear = true; // Ensure default behavior - Remove this too
 renderer.setSize(window.innerWidth, window.innerHeight);
 // Ensure renderer preserves pixelated style if desired
 renderer.setPixelRatio(window.devicePixelRatio); // Adjust for high DPI screens if needed
-renderer.domElement.style.imageRendering = 'pixelated'; // CSS approach
-document.getElementById('game-container').appendChild(renderer.domElement);
+// renderer.domElement.style.imageRendering = 'pixelated'; // CSS approach
+document.getElementById('game-container').appendChild(renderer.domElement); // <<< Add this
 
 let composer; // Declare composer globally
-
-// Post-processing setup
-composer = new EffectComposer(renderer);
-const renderPass = new RenderPass(scene, camera);
-composer.addPass(renderPass);
-
-// strength, radius, threshold - tweak these values for desired bloom effect
-// const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.5, 0.1, 0);
-const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.4, 0.1, 0.85); // Adjusted threshold, strength
-composer.addPass(bloomPass);
-
-const outputPass = new OutputPass(); // Handles final output color space/tone mapping
-composer.addPass(outputPass);
-
-window.addEventListener('resize', onWindowResize, false);
-
-function onWindowResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    composer.setSize(window.innerWidth, window.innerHeight); // Resize composer too
-}
 
 // --- Game State ---
 let currentGameState = 'character-selection'; // Renamed from gameState to avoid conflict
 let players = {}; // Store player data { id: { position, rotation, characterId, ... } }
 let localPlayerId = null;
 let raceInitialized = false; // Track if race scene is set up
+let isSceneInitialized = false; // <<< ADD Declaration for this flag
 
 // Global variable to track which course to load locally
 let localSelectedCourseId = 1;
@@ -74,9 +55,70 @@ const characterSpriteAngles = ['f', 'fr', 'r', 'br', 'b', 'bl', 'l', 'fl'];
 const textureLoader = new THREE.TextureLoader();
 const characterTextures = {}; // Cache for loaded textures { 'charId_angle': THREE.Texture }
 const flameTextures = [];
+const textures = {}; // <<< ADD Global object for course textures
 let particlesMaterial;
 
 function preloadAssets() {
+    console.log("Preloading assets...");
+    const assetsToLoad = [
+        { key: '/textures/grass.png', type: 'texture' },
+        { key: '/textures/mud.png', type: 'texture' },
+        { key: '/textures/road.png', type: 'texture' },
+        { key: '/textures/startfinishline.png', type: 'texture' },
+        { key: '/textures/stripedline.png', type: 'texture' },
+        { key: '/textures/stripedlineflip.png', type: 'texture' } // <<< Add FLIPPED striped line
+        // Add other necessary course textures here if needed later
+    ];
+
+    let assetsLoaded = 0;
+    // Preload spark textures
+    const sparkTexturePaths = [];
+    for (let i = 1; i <= 5; i++) {
+        sparkTexturePaths.push(`/Sprites/sparks/spark${i}.png`);
+    }
+
+    const totalAssets = assetsToLoad.length + 7 + sparkTexturePaths.length; // Update total
+
+    const checkAllAssetsLoaded = () => {
+        assetsLoaded++;
+        console.log(`Assets loaded: ${assetsLoaded}/${totalAssets}`);
+        if (assetsLoaded === totalAssets) {
+            console.log("All essential assets preloaded.");
+            // You could potentially enable UI or trigger something here
+        }
+    };
+
+    // Preload course textures
+    assetsToLoad.forEach(asset => {
+        if (asset.type === 'texture') {
+            textures[asset.key] = textureLoader.load(
+                asset.key,
+                (tex) => { // onLoad
+                    tex.magFilter = THREE.NearestFilter;
+                    tex.minFilter = THREE.NearestFilter;
+                    console.log(`Loaded course texture: ${asset.key}`);
+                    checkAllAssetsLoaded();
+                },
+                undefined, // onProgress
+                (err) => { // onError
+                    console.error(`Failed to load course texture: ${asset.key}`, err);
+                    checkAllAssetsLoaded(); // Still count it as "handled"
+                }
+            );
+        }
+        // Add handlers for other asset types (models, sounds) here later
+    });
+
+    // Preload spark textures into the global textures object
+    sparkTexturePaths.forEach(path => {
+        textures[path] = textureLoader.load(
+            path,
+            (tex) => { tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; checkAllAssetsLoaded(); },
+            undefined,
+            (err) => { console.error(`Failed to load spark texture: ${path}`, err); checkAllAssetsLoaded(); }
+        );
+    });
+
     // Preload flame textures
     for (let i = 1; i <= 7; i++) {
         const path = `/Sprites/flame/flame${i}.png`;
@@ -85,9 +127,13 @@ function preloadAssets() {
             (tex) => {
                 tex.magFilter = THREE.NearestFilter;
                 tex.minFilter = THREE.NearestFilter;
+                checkAllAssetsLoaded(); // <<< Call checker on flame load
             },
             undefined,
-            (err) => console.error(`Failed to load flame texture: ${path}`, err)
+            (err) => {
+                console.error(`Failed to load flame texture: ${path}`, err);
+                checkAllAssetsLoaded(); // <<< Call checker on flame error
+            }
         );
     }
 
@@ -303,7 +349,7 @@ socket.on('disconnect', () => {
     location.reload(); // Simple way to reset
 });
 
-socket.on('updateGameState', (newGameState, serverPlayers) => {
+socket.on('updateGameState', (newGameState, serverPlayers, levelData) => {
     console.log("DEBUG: socket.on('updateGameState') received!"); // Log: Handler entry
     console.log("DEBUG: Received newGameState:", newGameState);
     const oldGameState = currentGameState;
@@ -329,7 +375,7 @@ socket.on('updateGameState', (newGameState, serverPlayers) => {
     if (currentGameState === 'racing') {
         // Initialize the race visuals ONLY if not already initialized
         if (!raceInitialized) {
-            initializeRaceScene();
+            initializeRaceScene(players, levelData);
             raceInitialized = true;
              // Start the animation loop ONLY when the race starts
              if (!animationFrameId) {
@@ -351,7 +397,7 @@ socket.on('updateGameState', (newGameState, serverPlayers) => {
      if (currentGameState === 'waiting') {
          // If waiting, we might still want to see the current race state
           if (!raceInitialized) {
-            initializeRaceScene(); // Initialize scene to view ongoing race
+            initializeRaceScene(players, levelData); // Initialize scene to view ongoing race
             raceInitialized = true;
             if (!animationFrameId) animate(); // Start loop for spectator view
          }
@@ -381,11 +427,14 @@ socket.on('updatePlayerPosition', (playerId, position, rotation) => {
         if (playerId !== localPlayerId && playerObjects[playerId] && position) {
              // Store target position if not already doing so
              if (!playerObjects[playerId].userData) playerObjects[playerId].userData = {};
-             playerObjects[playerId].userData.targetPosition = new THREE.Vector3(position.x, position.y + playerSpriteScale / 2, position.z);
-        } else if (position) {
-             // Update local player or non-lerped position directly
-             players[playerId].position = position;
-             updatePlayerObjectTransform(playerId, position, rotation); // Update visual immediately
+             // Remote players get exact Y + offset
+             playerObjects[playerId].userData.targetPosition = new THREE.Vector3(position.x, position.y + playerSpriteScale / 2, position.z); 
+        } else if (playerId === localPlayerId && position) {
+             // Update local player position, BUT KEEP Y POSITION LOCAL
+             players[playerId].position.x = position.x;
+             players[playerId].position.z = position.z;
+             // Do NOT update players[playerId].position.y from server
+             updatePlayerObjectTransform(playerId, players[playerId].position, rotation); // Update visual immediately
         }
 
         // Always update rotation data (no lerping needed for this typically)
@@ -397,6 +446,28 @@ socket.on('updatePlayerPosition', (playerId, position, rotation) => {
         console.warn("Received position update for unknown player:", playerId);
         // Optionally request full player data from server if needed
         // socket.emit('requestPlayerData', playerId);
+    }
+});
+
+// Listener for effect state updates from the server
+socket.on('updatePlayerEffectsState', (playerId, effectsState) => {
+    if (players[playerId] && playerId !== localPlayerId) {
+        // Update the remote player's state in our local `players` object
+        if (effectsState.isDrifting !== undefined) {
+            players[playerId].isDrifting = effectsState.isDrifting;
+        }
+        if (effectsState.driftDirection !== undefined) {
+            players[playerId].driftDirection = effectsState.driftDirection;
+        }
+        if (effectsState.isBoosting !== undefined) {
+            players[playerId].isBoosting = effectsState.isBoosting;
+            // We might need to manually manage a boost end time for remote players
+            // if the server only sends the start event reliably.
+            // For now, just use the boolean flag.
+        }
+        if (effectsState.boostLevel !== undefined) {
+            players[playerId].boostLevel = effectsState.boostLevel;
+        }
     }
 });
 
@@ -573,14 +644,7 @@ let rightTurnStartTime = 0;
 const TURN_SPRITE_DELAY = 500; // Milliseconds to hold turn before sprite changes (0.5 seconds)
 
 // Drift State
-let localPlayerDriftState = {
-    state: 'none', // 'none', 'hopping', 'driftingLeft', 'driftingRight'
-    direction: 0, // -1 for left, 1 for right
-    startTime: 0,
-    hopEndTime: 0,
-    miniTurboLevel: 0, // 0: none, 1: blue, 2: orange/red
-    currentSidewaysAdjustment: 0 // Added for smoothing radius changes
-};
+let localPlayerDriftState = { state: 'none', direction: 0, startTime: 0, hopEndTime: 0, miniTurboLevel: 0, currentSidewaysAdjustment: 0 };
 
 window.addEventListener('keydown', (event) => {
     const key = event.key.toLowerCase();
@@ -597,8 +661,15 @@ window.addEventListener('keydown', (event) => {
              // Check if turning when hop starts
              const turningLeft = keyStates['a'] || keyStates['arrowleft'];
              const turningRight = keyStates['d'] || keyStates['arrowright'];
+
              if (turningLeft || turningRight) {
-                 initiateDrift(turningLeft ? -1 : 1, now); // -1 left, 1 right
+                 // Initiate Hop/Drift only if turning
+                 localPlayerDriftState.state = 'hopping';
+                 localPlayerDriftState.startTime = now;
+                 localPlayerDriftState.direction = turningLeft ? -1 : 1;
+                 localPlayerDriftState.miniTurboLevel = 0; // Reset turbo level on new drift
+                 // Emit drift start state
+                 socket.emit('playerDriftStateChange', true, localPlayerDriftState.direction);
              }
         }
     }
@@ -626,29 +697,36 @@ window.addEventListener('keyup', (event) => {
     const key = event.key.toLowerCase();
     keyStates[key] = false;
     if (key === 'a' || key === 'arrowleft') {
-        leftTurnStartTime = 0;
+        leftTurnStartTime = 0; // Reset start time on release
     } else if (key === 'd' || key === 'arrowright') {
-        rightTurnStartTime = 0;
+        rightTurnStartTime = 0; // Reset start time on release
     } else if (key === 'shift') {
-        releaseDrift(); // Handle drift button release
+         if (localPlayerDriftState.state === 'driftingLeft' || localPlayerDriftState.state === 'driftingRight') {
+             releaseDrift(); // Call the dedicated function to handle boost and state reset
+         } else if (localPlayerDriftState.state === 'hopping') {
+              // If shift released during hop (no drift established), just cancel
+              localPlayerDriftState.state = 'none';
+              localPlayerDriftState.currentSidewaysAdjustment = 0; // Also reset here
+              console.log("Hop Cancelled");
+         }
     }
 });
 
 // Driving Physics Constants
-const ACCELERATION = 0.006; // Decreased for slower ramp-up
+const ACCELERATION = 0.009; // Increased for faster speed gain
 const DECELERATION = 0.007; // DECREASED Friction slightly
 const BRAKING_FORCE = 0.015;
-const MAX_SPEED = 0.5; // Increased top speed
+const MAX_SPEED = 0.7; // Further increased top speed
 const MAX_REVERSE_SPEED = -0.1;
 const TURN_SPEED_BASE = 0.025; // Base radians per frame
 
 // Drift Physics Constants
 const HOP_DURATION = 150; // ms
-const DRIFT_TURN_RATE = 0.035; // How sharply the kart turns automatically during drift
+const DRIFT_TURN_RATE = 0.018; // Reduced for a less tight initial drift
 const DRIFT_COUNTER_STEER_FACTOR = 0.4; // How much player input affects drift angle WHEN NOT adjusting radius (keep for now?)
 const DRIFT_SIDEWAYS_FACTOR = 0.4; // INCREASED: More base sideways slide
 const DRIFT_COUNTER_STEER_RADIUS_EFFECT = 25.0; // EXTREME potential effect
-const DRIFT_RADIUS_LERP_FACTOR = 0.005; // DECREASED AGAIN: Very slow smoothing
+const DRIFT_RADIUS_LERP_FACTOR = 0.0025; // Further decreased for slower radius changes
 // const DRIFT_SPEED_MULTIPLIER = 0.98; // REMOVED - No speed penalty for drifting
 const MINI_TURBO_LEVEL_1_TIME = 1000; // ms for blue sparks
 const MINI_TURBO_LEVEL_2_TIME = 2000; // ms for orange sparks
@@ -685,6 +763,8 @@ function releaseDrift() {
                  boostEndTime = Date.now() + BOOST_DURATION;
                  console.log("BOOST APPLIED! Level:", localPlayerDriftState.miniTurboLevel, "New Velocity:", players[localPlayerId].velocity);
                  // TODO: Trigger boost visual/audio
+                 // Emit boost start event to the server
+                 socket.emit('playerBoostStart', { level: boostTriggerLevel, duration: BOOST_DURATION });
              }
         }
          // Reset drift state
@@ -694,13 +774,20 @@ function releaseDrift() {
          localPlayerDriftState.hopEndTime = 0;
          localPlayerDriftState.miniTurboLevel = 0;
          localPlayerDriftState.currentSidewaysAdjustment = 0; // Reset smoothed value
-    } else if (localPlayerDriftState.state === 'hopping') {
-         // Cancel hop if button released too early
-         localPlayerDriftState.state = 'none';
-         localPlayerDriftState.currentSidewaysAdjustment = 0; // Also reset here
-         console.log("Hop Cancelled");
-    }
-}
+
+        // Emit drift end state to server
+        socket.emit('playerDriftStateChange', false, 0);
+
+     } else if (localPlayerDriftState.state === 'hopping') {
+          // Cancel hop if button released too early
+          localPlayerDriftState.state = 'none';
+          localPlayerDriftState.currentSidewaysAdjustment = 0; // Also reset here
+          console.log("Hop Cancelled");
+
+         // Also emit drift end state if hop is cancelled
+         socket.emit('playerDriftStateChange', false, 0);
+     }
+ }
 
 // Need temporary vectors accessible in the function scope
 const playerRight = new THREE.Vector3();
@@ -864,7 +951,7 @@ function updateCameraPosition() {
         const playerRotationY = players[localPlayerId].rotation?.y || 0;
 
         // Calculate desired camera position based on player's current rotation
-        const offset = new THREE.Vector3(0, 4, 8); // Base offset (Up, Back)
+        const offset = new THREE.Vector3(0, 4, 6); // Reduced Z offset to zoom in slightly
         offset.applyAxisAngle(THREE.Object3D.DEFAULT_UP, playerRotationY);
 
         const cameraTargetPosition = target.position.clone().add(offset);
@@ -1048,19 +1135,17 @@ function createCourse(courseData) {
 
     const planeSize = courseData.planeSize || { width: 100, height: 100 };
     const planeGeometry = new THREE.PlaneGeometry(planeSize.width, planeSize.height);
-    const planeMaterial = new THREE.MeshStandardMaterial({
-         map: roadTexture,
-         side: THREE.DoubleSide
-    });
+    const planeMaterial = new THREE.MeshStandardMaterial({ map: roadTexture, side: THREE.DoubleSide }); // Restore Standard
     const plane = new THREE.Mesh(planeGeometry, planeMaterial);
     plane.rotation.x = -Math.PI / 2; 
     plane.position.y = 0; 
     plane.receiveShadow = true; 
     scene.add(plane);
     currentCourseObjects.push(plane);
+    console.log(`[createCourse] Added ground plane to scene.`);
 
     // --- Create Walls --- 
-    const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x888888 }); // Reusable material
+    const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x888888 }); // Restore Standard
     if (courseData.walls && Array.isArray(courseData.walls)) {
         courseData.walls.forEach(wallData => {
             if (wallData.type === 'box') { // Extend this for other wall types later
@@ -1080,6 +1165,7 @@ function createCourse(courseData) {
                 wallMesh.castShadow = true;
                 wallMesh.receiveShadow = true;
                 scene.add(wallMesh);
+                console.log(`[createCourse] Added wall ${wallData.type} to scene at ${position.x}, ${position.y}, ${position.z}`);
                 currentCourseObjects.push(wallMesh);
             } 
             // Add else if for cylinders, custom shapes etc.
@@ -1090,45 +1176,96 @@ function createCourse(courseData) {
 }
 
 // --- Race Initialization ---
-function initializeRaceScene(receivedGameState) { 
+function initializeRaceScene(initialPlayers, levelData) { // Add levelData parameter
     console.log("Initializing race scene...");
     if (raceInitialized) { 
-         cleanupRaceScene();
+         cleanupRaceScene(); // Ensure cleanup runs if re-initializing
     }
     raceInitialized = true;
+    isSceneInitialized = true; // Ensure this is set too
 
-    // ... (lighting setup remains the same) ...
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.2); // Reduced intensity from 0.6
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87CEEB); // Restore Sky blue background
+
+    // --- Lighting ---
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4); // Slightly increased ambient light
     scene.add(ambientLight);
     const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(10, 20, 15);
-    directionalLight.castShadow = true;
+    directionalLight.position.set(5, 10, 7);
     scene.add(directionalLight);
-    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.enabled = true; // Ensure shadows are enabled
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    // --- Load Course based on received data OR local selection --- 
-    let courseIdToLoad = localSelectedCourseId; // Default to local selection
-    
-    // If we received actual state from a server, prefer that (for future use)
-    if (receivedGameState && receivedGameState.race && receivedGameState.race.courseId !== undefined) {
-        courseIdToLoad = receivedGameState.race.courseId;
-        console.log("Loading course based on received state:", courseIdToLoad);
+    // --- Camera Setup ---
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 10, 15); // Default initial position
+    camera.lookAt(0, 0, 0);
+
+    // --- Setup EffectComposer ---
+    composer = new EffectComposer(renderer);
+    const renderPass = new RenderPass(scene, camera);
+    composer.addPass(renderPass);
+    // Temporarily remove other passes for debugging
+    // Add Bloom and Output passes
+    // const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.4, 0.1, 0.85); // Adjusted threshold, strength
+    // composer.addPass(bloomPass);
+    // const outputPass = new OutputPass();
+    // composer.addPass(outputPass);
+
+    // --- Setup Resize Handling for this scene/composer instance ---
+    // Remove previous listener if any to avoid duplicates
+    window.removeEventListener('resize', handleResizeForComposer);
+    // Add new listener
+    window.addEventListener('resize', handleResizeForComposer);
+
+    // --- Load Course ---
+    // If levelData is provided, use it. Otherwise, use defaults.
+    if (levelData) {
+        console.log("Loading course from received level data:", levelData.name);
+        console.log("--> Calling createCourseFromData"); // <<< ADD LOG
+        createCourseFromData(levelData);
     } else {
-        console.log("Loading course based on local selection:", courseIdToLoad);
+        console.log("No level data received, loading default course (Course 1)."); // Revert log
+        const courseId = 1; // Default course ID
+        let courseDataToLoad = courseLayouts[courseId]; // Fallback using old system
+        if (!courseDataToLoad) {
+             console.error(`FATAL: Default Course ID ${courseId} not found in layouts!`);
+             // Handle this critical error - maybe show an error message and stop?
+             courseDataToLoad = { // Provide a minimal fallback layout
+                 name: "Fallback Plane",
+                 planeSize: { width: 50, height: 50 },
+                 textureRepeat: { x: 5, y: 5 },
+                 //texture: '/textures/grass.png', // Use a known texture - Change path if needed
+                 roadTexturePath: '/textures/road.png', // Ensure this key exists for createCourse
+                 walls: []
+             };
+        }
+        console.log("--> Calling createCourse"); // <<< ADD LOG
+        createCourse(courseDataToLoad); // Call the OLD function for default/fallback
     }
 
-    let courseDataToLoad = courseLayouts[courseIdToLoad];
-    if (!courseDataToLoad) {
-         console.warn(`Course ID ${courseIdToLoad} not found in layouts, loading default Course 1.`);
-         courseDataToLoad = courseLayouts[1];
-    }
-    createCourse(courseDataToLoad); // Pass the selected layout data
-
-    console.log("Adding initial player objects:", players); // Use current players data
-    updatePlayerObjects();
+    // --- Add Initial Player Objects ---
+    console.log("Adding initial player objects:", initialPlayers);
+    updatePlayerObjects(); // Use the initialPlayers data passed from updateGameState
     setupInitialCameraPosition();
     updateAllSpriteAngles();
+
+    // Initialize spark system after scene setup
+    initializeSparkSystem();
+}
+
+// Define a resize handler function globally or make it accessible
+function handleResizeForComposer() {
+    if (camera && renderer && composer) { // Check if objects exist
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+
+        renderer.setSize(width, height);
+        composer.setSize(width, height); // Resize composer too
+    }
 }
 
 function setupInitialCameraPosition() {
@@ -1136,11 +1273,15 @@ function setupInitialCameraPosition() {
         const playerObj = playerObjects[localPlayerId];
          const targetPosition = playerObj.position;
          const playerRotationY = players[localPlayerId].rotation?.y || 0;
-         const offset = new THREE.Vector3(0, 4, 8); // Base offset
+         const offset = new THREE.Vector3(0, 4, 6); // Reduced Z offset to zoom in slightly
          offset.applyAxisAngle(THREE.Object3D.DEFAULT_UP, playerRotationY); // Apply rotation
-         camera.position.copy(targetPosition).add(offset);
-         camera.lookAt(targetPosition.clone().add(new THREE.Vector3(0, 1.5, 0))); // Look slightly above base
+         const finalCamPos = targetPosition.clone().add(offset);
+         const finalLookAt = targetPosition.clone().add(new THREE.Vector3(0, 1.5, 0));
+         camera.position.copy(finalCamPos);
+         camera.lookAt(finalLookAt); 
          console.log(`Initial camera set for local player ${localPlayerId}`);
+         console.log(`  -> Cam Pos: ${finalCamPos.x.toFixed(2)}, ${finalCamPos.y.toFixed(2)}, ${finalCamPos.z.toFixed(2)}`);
+         console.log(`  -> LookAt: ${finalLookAt.x.toFixed(2)}, ${finalLookAt.y.toFixed(2)}, ${finalLookAt.z.toFixed(2)}`);
          camera.updateMatrixWorld(); // Update camera matrix immediately
     } else {
         // Default camera position if local player not found (e.g., spectator)
@@ -1163,8 +1304,10 @@ function animate() {
         animationFrameId = null; // Ensure loop stops if scene cleaned up
         return;
     };
+    // console.log(`[Animate Frame ${frameCount}] State: ${currentGameState}`); // Log animate loop runs
     animationFrameId = requestAnimationFrame(animate);
     frameCount++; // Increment frame counter
+    const now = Date.now(); // Get current time for effects
 
     // --- Update Remote Player Positions (Lerp) ---
      for (const playerId in playerObjects) {
@@ -1182,12 +1325,19 @@ function animate() {
     updateCameraPosition();
     updateAllSpriteAngles();
 
-    // --- Update Visual Effects ---
-    updateDriftParticles(localPlayerId); // Update local player's particles
-    updateBoostFlame(localPlayerId, Date.now()); // Update local player's flame
-    // TODO: Update effects for remote players based on server state if needed
+    // --- Update Visual Effects for ALL players ---
+    for (const playerId in playerObjects) {
+        updateDriftParticles(playerId);
+        updateBoostFlame(playerId, now);
+    }
 
-    composer.render(); // Render via EffectComposer
+    // composer.render(); // Render via EffectComposer
+    composer.render(); // <<< Restore composer rendering
+
+    // Update spark system if it exists
+    if (sparkSystem) {
+        updateSparks();
+    }
 }
 
 function updateAllSpriteAngles() {
@@ -1215,26 +1365,32 @@ function updateDriftParticles(playerId) {
     const playerData = players[playerId];
     const playerSprite = playerObjects[playerId];
 
-    const isDrifting = (playerId === localPlayerId) && (localPlayerDriftState.state === 'driftingLeft' || localPlayerDriftState.state === 'driftingRight');
+    let isDrifting = false;
+    let driftDirection = 0;
+    let miniTurboLevel = 0;
+
+    if (playerId === localPlayerId) {
+        isDrifting = (localPlayerDriftState.state === 'driftingLeft' || localPlayerDriftState.state === 'driftingRight');
+        driftDirection = localPlayerDriftState.direction;
+        miniTurboLevel = localPlayerDriftState.miniTurboLevel;
+    } else {
+        // Use state received from server for remote players
+        isDrifting = playerData.isDrifting || false;
+        driftDirection = playerData.driftDirection || 0;
+        miniTurboLevel = playerData.boostLevel || 0; // Using boostLevel for particle color, might need separate drift level sync
+    }
 
     // --- Set Particle Color based on Mini-Turbo Level ---
-    if (playerId === localPlayerId) {
-        const level = localPlayerDriftState.miniTurboLevel;
-        let targetColor = 0xffffff; // Default: White
-        if (level === 1) {
-            targetColor = 0xff0000; // Level 1: Red
-        } else if (level >= 2) {
-            targetColor = 0x0000ff; // Level 2: Blue
-        }
-        // Check if color needs updating to avoid unnecessary material updates
-        if (particlesMaterial.color.getHex() !== targetColor) {
-             particlesMaterial.color.setHex(targetColor);
-        }
-    } else {
-         // Ensure non-local players' potential (but invisible) particles use default if logic changes
-         if (particlesMaterial.color.getHex() !== 0xffffff) {
-              particlesMaterial.color.setHex(0xffffff);
-         }
+    let targetColor = 0xffffff; // Default: White
+    if (miniTurboLevel === 1) {
+        targetColor = 0xff0000; // Level 1: Red
+    } else if (miniTurboLevel >= 2) {
+        targetColor = 0x0000ff; // Level 2: Blue
+    }
+    // Update shared material color (may affect all particle systems if not cloned)
+    // Consider cloning particlesMaterial if different colors are needed simultaneously.
+    if (particlesMaterial.color.getHex() !== targetColor) {
+         particlesMaterial.color.setHex(targetColor);
     }
 
     driftParticles.visible = isDrifting;
@@ -1247,53 +1403,46 @@ function updateDriftParticles(playerId) {
         particleEmitterPosition.copy(playerSprite.position).add(particleWorldOffset);
         particleEmitterPosition.y = particleEmitterOffset.y; // Use the LOWERED offset Y (-0.1)
         driftParticles.position.copy(particleEmitterPosition);
-        driftParticles.rotation.y = playerRotationY; // RE-ENABLED emitter rotation
+        driftParticles.rotation.y = playerRotationY; // Keep emitter aligned with player
 
         // 2. Calculate Player's World Right Vector (needed for initial spread)
         particlePlayerRight.set(1, 0, 0).applyAxisAngle(THREE.Object3D.DEFAULT_UP, playerRotationY);
 
-        // 3. Update Individual Particles (Testing inverted local axes)
+        // 3. Update Individual Particles
         const positions = driftParticles.geometry.attributes.position.array;
         const particleSpeed = 0.1 + Math.random() * 0.1;
-        const spread = 1.0; // Increased spread width
-        const maxParticleDist = 2.5; // Max distance along local Z
-        const velocityFactor = (playerData.velocity > 0 ? playerData.velocity / MAX_SPEED : 0.5);
+        const spread = 1.0;
+        const maxParticleDist = 2.5;
+        const velocity = playerData.velocity || (playerId === localPlayerId ? players[localPlayerId]?.velocity : 0.1); // Estimate velocity for remotes if not synced
+        const velocityFactor = (velocity > 0 ? velocity / MAX_SPEED : 0.5);
         const sidewaysDriftFactor = 0.02;
 
         for (let i = 0; i < positions.length; i += 3) {
-            // Reset based on distance along local Z (assuming it's visually forward now)
-            if (positions[i+2] > maxParticleDist || Math.random() < 0.05) { // Check positive distance
-                 // Reset particle: Spread local X, slightly positive initial Y (visually down?)
+            if (positions[i+2] > maxParticleDist || Math.random() < 0.05) {
                  const randomSpread = (Math.random() - 0.5) * spread;
-                 positions[i]   = randomSpread; // Local X
-                 positions[i+1] = (Math.random() * 0.05); // Start slightly positive Y (visually down?)
-                 positions[i+2] = (Math.random() - 0.5) * 0.1; // Start near Z=0
+                 positions[i]   = randomSpread;
+                 positions[i+1] = (Math.random() * 0.05);
+                 positions[i+2] = (Math.random() - 0.5) * 0.1;
             } else {
-                // Move particles "backward" (local +Z, visually backward?)
                 positions[i+2] += particleSpeed * velocityFactor;
-
-                 // Sideways drift (local X)
-                 const driftAmount = localPlayerDriftState.direction * sidewaysDriftFactor * velocityFactor;
+                 const driftAmount = driftDirection * sidewaysDriftFactor * velocityFactor;
                  positions[i] += driftAmount;
-
-                 // Add "downward" movement (local +Y, visually down?)
-                 positions[i+1] += 0.01; // ADDING to Y
+                 positions[i+1] += 0.01;
             }
         }
         driftParticles.geometry.attributes.position.needsUpdate = true;
     }
 }
 
-let flameAnimationIndex = 0;
-let lastFlameUpdateTime = 0;
-const FLAME_ANIMATION_SPEED = 50; // ms per frame
-const FLAME_LOOP_START_INDEX = 4; // flame5
+let flameAnimationIndex = 0; // Shared animation index - consider per-player if needed
+let lastFlameUpdateTime = 0; // Shared timer - consider per-player if needed
+const FLAME_ANIMATION_SPEED = 50;
+const FLAME_LOOP_START_INDEX = 4;
 
-// Temporary vectors for calculations
 const playerForwardFlame = new THREE.Vector3(0, 0, -1);
 const flameTargetPosition = new THREE.Vector3();
-const flameOffsetDistance = -0.6; // How far behind the player center
-const flameYPosition = 0.02; // Keep flame low, slightly increased to avoid z-fighting with road
+const flameOffsetDistance = -0.6;
+const flameYPosition = 0.02;
 
 function updateBoostFlame(playerId, now) {
     if (!playerVisuals[playerId] || !players[playerId] || !playerObjects[playerId]) return;
@@ -1302,42 +1451,48 @@ function updateBoostFlame(playerId, now) {
     const playerSprite = playerObjects[playerId];
     const playerData = players[playerId];
 
-    const isBoosting = (playerId === localPlayerId) && (now < boostEndTime);
-    // Get the boost level that triggered this boost (stored when boost starts)
-    const boostLevel = boostTriggerLevel; 
+    let isBoosting = false;
+    let boostLevel = 0;
+
+    if (playerId === localPlayerId) {
+        isBoosting = (now < boostEndTime); // Use local boost timer
+        boostLevel = boostTriggerLevel; // Use local trigger level
+    } else {
+        // Use state received from server for remote players
+        isBoosting = playerData.isBoosting || false;
+        boostLevel = playerData.boostLevel || 0;
+    }
 
     boostFlame.visible = isBoosting;
 
     if (isBoosting) {
-        // Calculate target position based on player's actual rotation
         const playerRotationY = playerData.rotation?.y || 0;
-        playerForwardFlame.set(0, 0, -1); // Reset base forward
-        playerForwardFlame.applyAxisAngle(THREE.Object3D.DEFAULT_UP, playerRotationY); // Apply player's Y rotation
+        playerForwardFlame.set(0, 0, -1);
+        playerForwardFlame.applyAxisAngle(THREE.Object3D.DEFAULT_UP, playerRotationY);
 
-        flameTargetPosition.copy(playerSprite.position); // Start at sprite center (which includes Y offset)
-        flameTargetPosition.addScaledVector(playerForwardFlame, flameOffsetDistance); // Move backward along player's forward
-        flameTargetPosition.y = flameYPosition; // Set fixed low Y position
+        flameTargetPosition.copy(playerSprite.position);
+        flameTargetPosition.addScaledVector(playerForwardFlame, flameOffsetDistance);
+        flameTargetPosition.y = flameYPosition;
 
         boostFlame.position.copy(flameTargetPosition);
 
         // --- Tint flame based on boost level ---
-        let targetColor = 0xffffff; // Default: White/Yellowish flame
+        let targetColor = 0xffffff;
         if (boostLevel >= 2) {
-             targetColor = 0x6666ff; // Level 2 Boost: More intense Blue Tint
+             targetColor = 0x6666ff;
         }
         if (boostFlame.material.color.getHex() !== targetColor) {
              boostFlame.material.color.setHex(targetColor);
              boostFlame.material.needsUpdate = true;
         }
 
-        // Animate texture
+        // --- Animate texture (using shared index/timer for now) ---
         if (now - lastFlameUpdateTime > FLAME_ANIMATION_SPEED) {
             flameAnimationIndex++;
             let textureIndex;
             if (flameAnimationIndex < flameTextures.length) {
                 textureIndex = flameAnimationIndex;
             } else {
-                // Loop between flame5, flame6, flame7 (indices 4, 5, 6)
                 const loopIndex = (flameAnimationIndex - FLAME_LOOP_START_INDEX) % (flameTextures.length - FLAME_LOOP_START_INDEX);
                 textureIndex = FLAME_LOOP_START_INDEX + loopIndex;
             }
@@ -1348,15 +1503,370 @@ function updateBoostFlame(playerId, now) {
             } else {
                  console.warn(`Missing flame texture for index: ${textureIndex}`);
             }
-            lastFlameUpdateTime = now;
+            lastFlameUpdateTime = now; // Update shared timer
         }
     } else {
-        // Reset color and animation when not boosting
+        // Reset shared state if this player *was* the one causing animation?
+        // This part is tricky with shared state.
+        // A per-player animation state would be better.
         if (boostFlame.material.color.getHex() !== 0xffffff) {
             boostFlame.material.color.setHex(0xffffff);
             boostFlame.material.needsUpdate = true;
         }
-        flameAnimationIndex = 0; 
-        boostTriggerLevel = 0; // Reset the trigger level
+        // Resetting shared index might stop other players' animations prematurely
+        // flameAnimationIndex = 0;
+        // boostTriggerLevel = 0; // This is local, reset is fine.
     }
-} 
+}
+
+// NEW Function to create course from loaded data
+function createCourseFromData(levelData) {
+    console.log("Creating course from data:", levelData);
+    if (!levelData || !levelData.tiles || !levelData.elements) {
+        console.error("Invalid level data provided to createCourseFromData.");
+        loadCourse(1); // Fallback to default
+        return;
+    }
+
+    // --- Define mapping from editor coords to world coords ---
+    const TILE_SIZE_EDITOR = 32; // Matches editor.js
+    const GRID_WIDTH_EDITOR = 40;
+    const GRID_HEIGHT_EDITOR = 30;
+    const WORLD_SCALE = 30.0; // <<< Further increased overall positioning scale (1.5x)
+    const GROUND_TILE_WORLD_SIZE = 30.0; // <<< Match ground tile size to new world scale
+    // Calculate world offset to center the grid (optional, adjust as needed)
+    const worldOffsetX = -(GRID_WIDTH_EDITOR * WORLD_SCALE) / 2;
+    const worldOffsetZ = -(GRID_HEIGHT_EDITOR * WORLD_SCALE) / 2;
+
+    function editorToWorld(editorX, editorY) {
+        return {
+            x: worldOffsetX + (editorX + 0.5) * WORLD_SCALE,
+            y: 0, // Assuming flat ground for now
+            z: worldOffsetZ + (editorY + 0.5) * WORLD_SCALE
+        };
+    }
+
+    // --- Create Ground Tiles ---
+    // Consider creating one large ground plane or fewer larger planes for performance
+    // For now, map tiles directly (might be slow for large maps)
+    levelData.tiles.forEach(tile => {
+        const pos = editorToWorld(tile.x, tile.y);
+        let textureUrl = null;
+        let color = 0x888888; // Default grey
+
+        switch (tile.type) {
+            case 'grass': textureUrl = '/textures/grass.png'; color = 0x34A853; break;
+            case 'mud': textureUrl = '/textures/mud.png'; color = 0x8B4513; break;
+            case 'road_v':
+            case 'road_h':
+            case 'road_ne':
+            case 'road_nw':
+            case 'road_se':
+            case 'road_sw': textureUrl = '/textures/road.png'; color = 0x666666; break;
+            case 'startfinish': textureUrl = '/textures/startfinishline.png'; color = 0xaaaaaa; break;
+            default: textureUrl = '/textures/grass.png'; // Default to grass if unknown type
+        }
+
+        // Make geometry slightly larger than spacing to prevent gaps
+        const overlap = 0.1;
+        const groundGeometry = new THREE.PlaneGeometry(GROUND_TILE_WORLD_SIZE + overlap, GROUND_TILE_WORLD_SIZE + overlap);
+        let groundMaterial;
+
+        if (textureUrl && textures[textureUrl]) {
+             groundMaterial = new THREE.MeshStandardMaterial({ map: textures[textureUrl] }); // Revert to Lambert or Standard
+        } else {
+            console.warn(`Texture not preloaded or not found for tile type: ${tile.type} (path: ${textureUrl}). Using color.`);
+            groundMaterial = new THREE.MeshStandardMaterial({ map: textures[textureUrl] }); // Revert to Lambert or Standard
+        }
+
+        const groundMesh = new THREE.Mesh(groundGeometry, groundMaterial);
+        groundMesh.rotation.x = -Math.PI / 2; // Rotate plane to be flat
+        // Add tiny random offset to prevent Z-fighting
+        const randomYOffset = (Math.random() - 0.5) * 0.01; // <<< Increased random offset magnitude
+        groundMesh.position.set(pos.x, pos.y - 0.01 + randomYOffset, pos.z);
+
+        // TODO: Handle road rotations/variants based on tile.variant
+
+        scene.add(groundMesh);
+
+        // --- Add Striped Edges --- 
+        const stripeTextureKey = '/textures/stripedline.png';
+        const stripeTextureFlipKey = '/textures/stripedlineflip.png';
+        if (textures[stripeTextureKey] && tile.type.startsWith('road')) { // Only add stripes to road tiles
+            const stripeMap = textures[stripeTextureKey];
+            const stripeMapFlip = textures[stripeTextureFlipKey];
+
+            // Material for N/S (using flipped texture, no Z rotation)
+            const stripeMaterialNS = new THREE.MeshStandardMaterial({
+                map: stripeMapFlip, // Use flipped texture
+                color: stripeMapFlip ? 0xffffff : 0x00ff00, // GREEN fallback for NS
+                transparent: true, alphaTest: 0.1, depthWrite: false,
+                polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -4.0
+            });
+
+            // Material for E/W (using original texture, WITH Z rotation)
+            const stripeMaterial = new THREE.MeshStandardMaterial({
+                map: stripeMap,
+                color: stripeMap ? 0xffffff : 0xff0000, // White if texture loads, RED fallback
+                transparent: true, alphaTest: 0.1, depthWrite: false,
+                polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -4.0
+            });
+
+            const isRoad = (t) => t && t.type.startsWith('road'); // Helper to check if a tile is road
+
+            const neighbors = {
+                n: levelData.tiles.find(t => t.x === tile.x && t.y === tile.y - 1),
+                s: levelData.tiles.find(t => t.x === tile.x && t.y === tile.y + 1),
+                e: levelData.tiles.find(t => t.x === tile.x + 1 && t.y === tile.y),
+                w: levelData.tiles.find(t => t.x === tile.x - 1 && t.y === tile.y)
+            };
+
+            const stripeHeight = 1.0; // Increased stripe height
+            const stripeWidth = GROUND_TILE_WORLD_SIZE; // Full width of the tile edge
+            const stripeGeometryNS = new THREE.PlaneGeometry(stripeWidth, stripeHeight);
+            const stripeGeometryEW = new THREE.PlaneGeometry(stripeHeight, stripeWidth); // Swapped dimensions
+
+            // Check North edge
+            if (!isRoad(neighbors.n)) {
+                const stripeN = new THREE.Mesh(stripeGeometryNS, stripeMaterial); // Use Original Material
+                stripeN.rotation.x = -Math.PI / 2;
+                stripeN.rotation.z = Math.PI; // Add Z rotation
+                stripeN.position.set(pos.x, pos.y, pos.z - GROUND_TILE_WORLD_SIZE / 2);
+                scene.add(stripeN);
+            }
+            // Check South edge
+            if (!isRoad(neighbors.s)) {
+                const stripeS = new THREE.Mesh(stripeGeometryNS, stripeMaterial); // Use Original Material
+                stripeS.rotation.x = -Math.PI / 2;
+                stripeS.rotation.z = Math.PI; // Add Z rotation
+                stripeS.position.set(pos.x, pos.y, pos.z + GROUND_TILE_WORLD_SIZE / 2);
+                scene.add(stripeS);
+            }
+            // Check East edge
+            if (!isRoad(neighbors.e)) {
+                const stripeE = new THREE.Mesh(stripeGeometryEW, stripeMaterialNS); // Use NS (Flipped) Material
+                stripeE.rotation.x = -Math.PI / 2;
+                stripeE.position.set(pos.x + GROUND_TILE_WORLD_SIZE / 2, pos.y, pos.z);
+                scene.add(stripeE);
+            }
+            // Check West edge
+            if (!isRoad(neighbors.w)) {
+                const stripeW = new THREE.Mesh(stripeGeometryEW, stripeMaterialNS); // Use NS (Flipped) Material
+                stripeW.rotation.x = -Math.PI / 2;
+                stripeW.position.set(pos.x - GROUND_TILE_WORLD_SIZE / 2, pos.y, pos.z);
+                scene.add(stripeW);
+            }
+        }
+    });
+
+    // --- Create Elements (Walls, etc.) ---
+    levelData.elements.forEach(element => {
+        const pos = editorToWorld(element.x, element.y);
+        let elementMesh = null;
+        // Reduce relative element size
+        // Adjust factors to keep element size somewhat constant despite increased WORLD_SCALE
+        const elementSize = WORLD_SCALE * 0.27; // Approx 8.1 with WORLD_SCALE=30
+        const elementHeight = WORLD_SCALE * 0.2; // Approx 6.0 with WORLD_SCALE=30
+
+        // Simple box geometry for now
+        const geometry = new THREE.BoxGeometry(elementSize, elementHeight, elementSize);
+        let material;
+
+        // Basic color mapping (improve with textures later)
+        let color = 0xCCCCCC;
+        switch (element.type) {
+            case 'startgate': color = 0xFFFF00; break; // Yellow
+            case 'blueblock': color = 0x4285F4; break; // Blue
+            case 'greenblock': color = 0x34A853; break; // Green
+            case 'darkgreenblock': color = 0x0F9D58; break; // Dark Green
+            case 'redblock': color = 0xEA4335; break; // Red
+            case 'yellowblock': color = 0xFBBC05; break; // Yellow/Orange
+            case 'tiresred': color = 0xEA4335; break;
+            case 'tireswhite': color = 0xFFFFFF; break;
+            default: color = 0x999999; // Default grey for unknown elements
+        }
+        material = new THREE.MeshStandardMaterial({ color: color }); // Revert to Lambert or Standard
+        elementMesh = new THREE.Mesh(geometry, material);
+        elementMesh.position.set(pos.x, pos.y + elementHeight / 2, pos.z);
+
+        // TODO: Add textures, rotations, different geometries based on element.type
+
+        if (elementMesh) {
+            scene.add(elementMesh);
+        }
+    });
+
+    console.log("Finished creating course from data.");
+}
+
+// Function to clean up scene objects and state when race ends or resets
+function cleanupRaceScene() {
+    console.log("Cleaning up race scene...");
+
+    // Stop the animation loop
+    if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+    }
+
+    // Remove players
+    for (const playerId in playerObjects) {
+        removePlayerObject(playerId); // Use existing function to remove visuals
+    }
+    players = {}; // Clear player data cache
+    playerObjects = {}; // Ensure visual object references are cleared
+    playerVisuals = {}; // Ensure visual components references are cleared
+
+    // Remove course objects 
+    // Fallback: Remove meshes/sprites potentially added by createCourseFromData or createCourse
+    const objectsToRemove = [];
+    scene.children.forEach(child => {
+        if (child instanceof THREE.Mesh || child instanceof THREE.Points || child instanceof THREE.Sprite) {
+            // Keep player sprites (already handled by removePlayerObject)
+            // Keep lights, camera etc.
+            if (!Object.values(playerObjects).includes(child) && 
+                !(child instanceof THREE.Light || child instanceof THREE.Camera)) {
+                objectsToRemove.push(child);
+            }
+        }
+    });
+    objectsToRemove.forEach(obj => scene.remove(obj));
+    console.log(`Removed ${objectsToRemove.length} dynamic scene objects.`);
+    if (currentCourseObjects && Array.isArray(currentCourseObjects)) {
+        currentCourseObjects = []; // Also clear the old tracking array if it exists
+    }
+
+    // Remove resize listener
+    window.removeEventListener('resize', handleResizeForComposer);
+
+    // Reset flags
+    raceInitialized = false;
+    isSceneInitialized = false;
+    composer = null; 
+    console.log("Race scene cleanup complete.");
+}
+
+// --- Spark Effect Setup ---
+let sparkSystem;
+const MAX_SPARKS = 50; // Max sparks visible at once
+let sparkParticles = []; // Store individual spark data { position, velocity, life, textureIndex } 
+const sparkTexturesLoaded = []; // Cache loaded textures
+const SPARK_LIFESPAN = 300; // ms
+
+// --- Collision Handling ---
+socket.on('collisionDetected', ({ playerA_id, playerB_id, collisionPoint }) => {
+    console.log(`Collision event received: ${playerA_id} vs ${playerB_id} at`, collisionPoint); // <<< Enable log
+    if (raceInitialized && sparkSystem) {
+        console.log("--> Triggering sparks!"); // <<< Add log
+        triggerSparks(collisionPoint);
+    }
+});
+
+// --- Spark Functions ---
+function initializeSparkSystem() {
+    console.log("Initializing Spark System..."); // <<< Add log
+    // Cache loaded spark textures
+    for (let i = 1; i <= 5; i++) {
+        const path = `/Sprites/sparks/spark${i}.png`;
+        if (textures[path]) {
+            sparkTexturesLoaded.push(textures[path]);
+        }
+    }
+    if (sparkTexturesLoaded.length === 0) {
+        console.warn("No spark textures loaded, cannot initialize spark system.");
+        return;
+    }
+
+    const sparkGeometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(MAX_SPARKS * 3);
+    const colors = new Float32Array(MAX_SPARKS * 3); // For potential color variation
+    const texIndices = new Float32Array(MAX_SPARKS); // To tell shader which texture
+
+    sparkGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    sparkGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3)); // Optional
+    sparkGeometry.setAttribute('texIndex', new THREE.BufferAttribute(texIndices, 1));
+
+    // For simplicity, start with PointsMaterial - ShaderMaterial needed for per-particle texture
+    const sparkMaterial = new THREE.PointsMaterial({
+        size: 0.8, // Adjust size
+        map: sparkTexturesLoaded[0], // Use first texture as default for PointsMaterial
+        transparent: true,
+        alphaTest: 0.1,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending // Brighter sparks
+    });
+
+    sparkSystem = new THREE.Points(sparkGeometry, sparkMaterial);
+    sparkSystem.visible = false; // Start hidden
+    scene.add(sparkSystem);
+
+    // Initialize particle data pool
+    for (let i = 0; i < MAX_SPARKS; i++) {
+        sparkParticles.push({ life: 0, velocity: new THREE.Vector3(), textureIndex: 0 });
+    }
+}
+
+function triggerSparks(origin) {
+    if (!sparkSystem || sparkTexturesLoaded.length === 0) return;
+
+    let sparksCreated = 0;
+    const numSparksToCreate = 8; // As requested
+
+    for (let i = 0; i < MAX_SPARKS && sparksCreated < numSparksToCreate; i++) {
+        if (sparkParticles[i].life <= 0) { // Find a dead particle to reuse
+            sparkParticles[i].life = SPARK_LIFESPAN;
+            sparkParticles[i].textureIndex = Math.floor(Math.random() * sparkTexturesLoaded.length); // Random texture
+            // Initial position at collision point
+            sparkSystem.geometry.attributes.position.setXYZ(i, origin.x, origin.y, origin.z);
+            // Random outward velocity
+            sparkParticles[i].velocity.set(
+                (Math.random() - 0.5),
+                (Math.random() - 0.5),
+                (Math.random() - 0.5)
+            ).normalize().multiplyScalar(0.1 + Math.random() * 0.1); // Random speed
+
+            sparksCreated++;
+        }
+    }
+
+    sparkSystem.visible = true; // Make sure system is visible if sparks are active
+    sparkSystem.geometry.attributes.position.needsUpdate = true;
+    // NOTE: Changing texture per particle needs ShaderMaterial, this won't work with PointsMaterial directly.
+    // We can set the overall texture randomly for now as a placeholder.
+    sparkSystem.material.map = sparkTexturesLoaded[Math.floor(Math.random() * sparkTexturesLoaded.length)];
+    sparkSystem.material.needsUpdate = true; 
+}
+
+let lastSparkUpdate = Date.now();
+function updateSparks() {
+    if (!sparkSystem || !sparkSystem.visible) return;
+
+    const now = Date.now();
+    const delta = now - lastSparkUpdate;
+    lastSparkUpdate = now;
+
+    let aliveCount = 0;
+    const positions = sparkSystem.geometry.attributes.position.array;
+
+    for (let i = 0; i < MAX_SPARKS; i++) {
+        if (sparkParticles[i].life > 0) {
+            sparkParticles[i].life -= delta;
+            if (sparkParticles[i].life <= 0) {
+                // Hide particle (move far away or set scale to 0 if using InstancedMesh)
+                positions[i * 3 + 1] = -10000; // Move offscreen
+            } else {
+                // Update position
+                positions[i * 3 + 0] += sparkParticles[i].velocity.x * delta * 0.05; // Reduced speed multiplier
+                positions[i * 3 + 1] += sparkParticles[i].velocity.y * delta * 0.05; // Reduced speed multiplier
+                positions[i * 3 + 2] += sparkParticles[i].velocity.z * delta * 0.05; // Reduced speed multiplier
+                aliveCount++;
+            }
+        }
+    }
+
+    sparkSystem.geometry.attributes.position.needsUpdate = true;
+    if (aliveCount === 0) {
+        sparkSystem.visible = false; // Hide system if no sparks are alive
+    }
+}
+
