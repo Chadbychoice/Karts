@@ -1,24 +1,20 @@
 // server.js (Restored)
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const path = require('path');
-const fs = require('fs');
+import express from 'express';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import fs from 'fs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const app = express();
-const server = http.createServer(app);
-
-// Initialize Socket.IO Server
-const io = new Server(server, {
-    // No specific transports needed now, defaults are fine
-    cors: { // Keep CORS for flexibility during development
-        origin: "*",
-        methods: ["GET", "POST"]
-    }
-});
+const server = createServer(app);
+const io = new Server(server);
 
 const PORT = process.env.PORT || 3000;
-const LEVELS_DIR = path.join(__dirname, 'levels');
+const LEVELS_DIR = join(__dirname, 'levels');
 
 // --- Ensure Levels Directory Exists ---
 try {
@@ -98,7 +94,7 @@ function startRace() {
 
     // --- Attempt to load level data ---
     let levelData = null;
-    const levelFilePath = path.join(LEVELS_DIR, 'test.json'); // Hardcode test.json for now
+    const levelFilePath = join(LEVELS_DIR, 'test.json'); // Hardcode test.json for now
     try {
         if (fs.existsSync(levelFilePath)) {
             const rawData = fs.readFileSync(levelFilePath, 'utf8');
@@ -149,17 +145,17 @@ function endRace() {
 }
 
 // Serve static files from the "public" directory
-app.use(express.static(path.join(__dirname, 'public')));
-app.use('/node_modules', express.static(path.join(__dirname, 'node_modules')));
+app.use(express.static('public'));
+app.use('/node_modules', express.static(join(__dirname, 'node_modules')));
 
 // Handle root route to serve index.html
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(join(__dirname, 'public', 'index.html'));
 });
 
 // ADDED: Handle editor route
 app.get('/editor', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'editor.html'));
+  res.sendFile(join(__dirname, 'public', 'editor.html'));
 });
 
 // --- Socket.IO Connection Handling ---
@@ -328,7 +324,7 @@ io.on('connection', (socket) => {
         }
 
         const safeFilename = name + '.json'; // Add .json extension
-        const filePath = path.join(LEVELS_DIR, safeFilename);
+        const filePath = join(LEVELS_DIR, safeFilename);
 
         try {
             const jsonData = JSON.stringify(data, null, 2); // Pretty print JSON

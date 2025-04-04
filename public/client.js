@@ -1007,6 +1007,7 @@ console.log("Client script loaded. Waiting for server connection...");
 
 console.log("Client script loaded. Waiting for server connection...");
 preloadAssets(); // Call preload function
+setupCharacterSelection(); // Initialize character selection screen
 
 function updatePlayerSpriteAngle(playerId, sprite, playerData) {
     if (!sprite || !sprite.userData || !playerData) return;
