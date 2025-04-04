@@ -14,25 +14,42 @@ import { OutputShader } from './jsm/shaders/OutputShader.js';
 const socket = io(window.location.hostname === 'localhost' ? 'http://localhost:3000' : undefined, {
     transports: ['polling', 'websocket'],
     reconnection: true,
-    reconnectionAttempts: Infinity,  // Keep trying to reconnect indefinitely
+    reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
     timeout: 20000,
     autoConnect: true,
-    forceNew: true
+    forceNew: true,
+    path: '/socket.io/',
+    upgrade: true,
+    rememberUpgrade: true
 });
 
 // Add connection event handlers
-socket.on('connect', () => {
-    console.log('Connected to server');
-    // Remove any existing reconnection message
-    const message = document.querySelector('.reconnect-message');
-    if (message) message.remove();
+socket.io.on("error", (error) => {
+    console.error('Socket.IO error:', error);
+    showReconnectMessage('Connection error: ' + error.message);
 });
 
-socket.on('connect_error', (error) => {
-    console.log('Connection error:', error);
-    showReconnectMessage('Connection error. Retrying...');
+socket.io.on("reconnect_attempt", (attempt) => {
+    console.log('Reconnection attempt:', attempt);
+    showReconnectMessage(`Attempting to reconnect... (Attempt ${attempt})`);
+});
+
+socket.io.on("reconnect_error", (error) => {
+    console.error('Reconnection error:', error);
+    showReconnectMessage('Reconnection error: ' + error.message);
+});
+
+socket.io.on("reconnect_failed", () => {
+    console.error('Reconnection failed');
+    showReconnectMessage('Unable to connect to server. Please refresh the page.');
+});
+
+socket.on('connect', () => {
+    console.log('Connected to server');
+    const message = document.querySelector('.reconnect-message');
+    if (message) message.remove();
 });
 
 socket.on('disconnect', (reason) => {
@@ -42,16 +59,15 @@ socket.on('disconnect', (reason) => {
 
 socket.on('reconnect', (attemptNumber) => {
     console.log('Reconnected to server after', attemptNumber, 'attempts');
-    // Remove the reconnecting message
     const message = document.querySelector('.reconnect-message');
     if (message) message.remove();
     // Request current game state after reconnection
     socket.emit('requestGameState');
 });
 
-socket.on('reconnect_attempt', (attemptNumber) => {
-    console.log('Attempting to reconnect:', attemptNumber);
-    showReconnectMessage(`Attempting to reconnect... (Attempt ${attemptNumber})`);
+socket.on('connect_error', (error) => {
+    console.log('Connection error:', error);
+    showReconnectMessage('Connection error. Retrying...');
 });
 
 function showReconnectMessage(text) {

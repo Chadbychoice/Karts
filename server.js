@@ -14,15 +14,23 @@ const server = createServer(app);
 const io = new Server(server, {
     cors: {
         origin: "*",
-        methods: ["GET", "POST"]
+        methods: ["GET", "POST", "OPTIONS"],
+        allowedHeaders: ["Content-Type"],
+        credentials: true
     },
-    transports: ['polling', 'websocket'],
     allowEIO3: true,
-    pingTimeout: 60000,
-    pingInterval: 25000,
+    transports: ['polling', 'websocket'],
+    pingTimeout: 10000,
+    pingInterval: 5000,
+    upgradeTimeout: 30000,
+    maxHttpBufferSize: 1e8,
     path: '/socket.io/',
     serveClient: false,
-    cookie: false
+    cookie: false,
+    connectTimeout: 45000,
+    perMessageDeflate: {
+        threshold: 2048
+    }
 });
 
 const PORT = process.env.PORT || 3000;
@@ -461,4 +469,21 @@ setInterval(() => {
             }
         }
     }
-}, SERVER_TICK_RATE); 
+}, SERVER_TICK_RATE);
+
+// Add error handling for the server
+server.on('error', (error) => {
+    console.error('Server error:', error);
+    if (error.code === 'EADDRINUSE') {
+        console.log('Address in use, retrying in 1 second...');
+        setTimeout(() => {
+            server.close();
+            server.listen(PORT);
+        }, 1000);
+    }
+});
+
+// Add error handling for Socket.IO
+io.on('error', (error) => {
+    console.error('Socket.IO error:', error);
+}); 
