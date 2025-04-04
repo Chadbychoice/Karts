@@ -18,19 +18,11 @@ const io = new Server(server, {
         allowedHeaders: ["Content-Type"],
         credentials: true
     },
-    allowEIO3: true,
-    transports: ['polling', 'websocket'],
+    transports: ['websocket'],
     pingTimeout: 10000,
     pingInterval: 5000,
-    upgradeTimeout: 30000,
     maxHttpBufferSize: 1e8,
-    path: '/socket.io/',
-    serveClient: false,
-    cookie: false,
-    connectTimeout: 45000,
-    perMessageDeflate: {
-        threshold: 2048
-    }
+    serveClient: false
 });
 
 const PORT = process.env.PORT || 3000;
@@ -79,6 +71,14 @@ const PLAYER_COLLISION_RADIUS = 0.8; // Adjust as needed (world units)
 const COLLISION_PUSH_FACTOR = 0.8; // Significantly increased push force
 const COLLISION_SEPARATION_EPSILON = 0.01; // Tiny extra separation
 const SERVER_TICK_RATE = 1000 / 15; // Milliseconds between server ticks (e.g., 15 Hz)
+
+// Add CORS middleware for all routes
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    next();
+});
 
 // --- Helper Functions ---
 function checkRaceStart() {

@@ -11,24 +11,25 @@ import { LuminosityHighPassShader } from './jsm/shaders/LuminosityHighPassShader
 import { OutputShader } from './jsm/shaders/OutputShader.js';
 
 // --- Basic Setup ---
-const socket = io(window.location.hostname === 'localhost' ? 'http://localhost:3000' : undefined, {
-    transports: ['polling', 'websocket'],
+const WEBSOCKET_URL = window.location.hostname === 'localhost' 
+    ? 'http://localhost:3000' 
+    : 'https://karts-websocket.up.railway.app';  // We'll set this up on Railway
+
+const socket = io(WEBSOCKET_URL, {
+    transports: ['websocket'],
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
     timeout: 20000,
     autoConnect: true,
-    forceNew: true,
-    path: '/socket.io/',
-    upgrade: true,
-    rememberUpgrade: true
+    forceNew: true
 });
 
 // Add connection event handlers
 socket.io.on("error", (error) => {
     console.error('Socket.IO error:', error);
-    showReconnectMessage('Connection error: ' + error.message);
+    showReconnectMessage(`Connection error: ${error.message}`);
 });
 
 socket.io.on("reconnect_attempt", (attempt) => {
@@ -38,30 +39,29 @@ socket.io.on("reconnect_attempt", (attempt) => {
 
 socket.io.on("reconnect_error", (error) => {
     console.error('Reconnection error:', error);
-    showReconnectMessage('Reconnection error: ' + error.message);
+    showReconnectMessage(`Reconnection error: ${error.message}`);
 });
 
 socket.io.on("reconnect_failed", () => {
     console.error('Reconnection failed');
-    showReconnectMessage('Unable to connect to server. Please refresh the page.');
+    showReconnectMessage('Unable to connect to game server. Please refresh the page.');
 });
 
 socket.on('connect', () => {
-    console.log('Connected to server');
+    console.log('Connected to game server');
     const message = document.querySelector('.reconnect-message');
     if (message) message.remove();
 });
 
 socket.on('disconnect', (reason) => {
-    console.log('Disconnected from server:', reason);
-    showReconnectMessage('Lost connection to server. Attempting to reconnect...');
+    console.log('Disconnected from game server:', reason);
+    showReconnectMessage('Lost connection to game server. Attempting to reconnect...');
 });
 
 socket.on('reconnect', (attemptNumber) => {
-    console.log('Reconnected to server after', attemptNumber, 'attempts');
+    console.log('Reconnected to game server after', attemptNumber, 'attempts');
     const message = document.querySelector('.reconnect-message');
     if (message) message.remove();
-    // Request current game state after reconnection
     socket.emit('requestGameState');
 });
 
