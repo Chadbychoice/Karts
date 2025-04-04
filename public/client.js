@@ -1,12 +1,17 @@
 import * as THREE from 'three'; // Use the import map
 // Import addons directly from unpkg
-import { EffectComposer } from 'https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/OutputPass.js';
+import { EffectComposer } from './jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from './jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from './jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from './jsm/postprocessing/OutputPass.js';
+import { ShaderPass } from './jsm/postprocessing/ShaderPass.js';
+// Import required shaders
+import { CopyShader } from './jsm/shaders/CopyShader.js';
+import { LuminosityHighPassShader } from './jsm/shaders/LuminosityHighPassShader.js';
+import { OutputShader } from './jsm/shaders/OutputShader.js';
 
 // --- Basic Setup ---
-const socket = io();
+const socket = io(window.location.hostname === 'localhost' ? 'http://localhost:3000' : undefined);
 let scene = new THREE.Scene();
 let camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer();
