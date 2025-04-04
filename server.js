@@ -11,9 +11,11 @@ const __dirname = dirname(__filename);
 
 const app = express();
 const server = createServer(app);
+
+// Configure Socket.IO with more lenient settings
 const io = new Server(server, {
     cors: {
-        origin: "*",
+        origin: process.env.NODE_ENV === 'production' ? ["https://*.up.railway.app", "https://*.vercel.app"] : "*",
         methods: ["GET", "POST", "OPTIONS"],
         allowedHeaders: ["Content-Type"],
         credentials: true
@@ -22,22 +24,48 @@ const io = new Server(server, {
     pingTimeout: 60000,
     pingInterval: 25000,
     maxHttpBufferSize: 1e8,
-    serveClient: false
+    serveClient: false,
+    allowEIO3: true
 });
 
+// Use Railway's PORT or fallback
 const PORT = process.env.PORT || 3000;
-const LEVELS_DIR = join(__dirname, 'levels');
 
-// --- Try to ensure Levels Directory Exists (but don't fail if we can't) ---
-try {
-    if (!fs.existsSync(LEVELS_DIR)) {
-        fs.mkdirSync(LEVELS_DIR, { recursive: true });
-        console.log(`Created levels directory at: ${LEVELS_DIR}`);
+// Ensure we're in the correct directory
+const publicPath = join(__dirname, 'public');
+console.log('Current directory:', __dirname);
+console.log('Public path:', publicPath);
+
+// Basic health check endpoint
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Serve static files with proper MIME types
+app.use(express.static(publicPath, {
+    setHeaders: (res, path) => {
+        if (path.endsWith('.css')) {
+            res.setHeader('Content-Type', 'text/css');
+        } else if (path.endsWith('.js')) {
+            res.setHeader('Content-Type', 'application/javascript');
+        } else if (path.endsWith('.png')) {
+            res.setHeader('Content-Type', 'image/png');
+        } else if (path.endsWith('.jpg') || path.endsWith('.jpeg')) {
+            res.setHeader('Content-Type', 'image/jpeg');
+        }
     }
-} catch (err) {
-    console.warn("Warning: Could not create/access levels directory:", err.message);
-    // Continue execution - we'll handle missing levels gracefully
-}
+}));
+app.use('/node_modules', express.static(join(__dirname, 'node_modules')));
+
+// Handle root route to serve index.html
+app.get('/', (req, res) => {
+  res.sendFile(join(__dirname, 'public', 'index.html'));
+});
+
+// ADDED: Handle editor route
+app.get('/editor', (req, res) => {
+  res.sendFile(join(__dirname, 'public', 'editor.html'));
+});
 
 // --- Game State ---
 const GAME_STATES = {
@@ -162,33 +190,6 @@ function endRace() {
         endRaceTimeoutId = null; // Clear ID after execution
     }, 5000);
 }
-
-// Serve static files from the "public" directory with proper MIME types
-const publicPath = join(__dirname, 'public');
-app.use(express.static(publicPath, {
-    setHeaders: (res, path) => {
-        if (path.endsWith('.css')) {
-            res.setHeader('Content-Type', 'text/css');
-        } else if (path.endsWith('.js')) {
-            res.setHeader('Content-Type', 'application/javascript');
-        } else if (path.endsWith('.png')) {
-            res.setHeader('Content-Type', 'image/png');
-        } else if (path.endsWith('.jpg') || path.endsWith('.jpeg')) {
-            res.setHeader('Content-Type', 'image/jpeg');
-        }
-    }
-}));
-app.use('/node_modules', express.static(join(__dirname, 'node_modules')));
-
-// Handle root route to serve index.html
-app.get('/', (req, res) => {
-  res.sendFile(join(__dirname, 'public', 'index.html'));
-});
-
-// ADDED: Handle editor route
-app.get('/editor', (req, res) => {
-  res.sendFile(join(__dirname, 'public', 'editor.html'));
-});
 
 // --- Socket.IO Connection Handling ---
 io.on('connection', (socket) => {
@@ -404,29 +405,51 @@ io.on('connection', (socket) => {
     });
 });
 
-// Start the server
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-}).on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-        console.error(`Port ${PORT} is already in use. Trying again in 1 second...`);
+// Improve server startup
+const startServer = () => {
+    try {
+        server.listen(PORT, '0.0.0.0', () => {
+            console.log(`Server running on port ${PORT}`);
+            console.log('Environment:', process.env.NODE_ENV);
+            console.log('Public directory:', publicPath);
+        });
+    } catch (error) {
+        console.error('Failed to start server:', error);
+        process.exit(1);
+    }
+};
+
+// Handle server errors
+server.on('error', (error) => {
+    console.error('Server error:', error);
+    if (error.code === 'EADDRINUSE') {
+        console.log(`Port ${PORT} is busy. Retrying in 1 second...`);
         setTimeout(() => {
             server.close();
-            server.listen(PORT);
+            startServer();
         }, 1000);
-    } else {
-        console.error('Server error:', err);
     }
 });
 
-// Handle process termination gracefully
+// Handle process signals
 process.on('SIGTERM', () => {
-    console.log('SIGTERM received. Closing server...');
+    console.log('SIGTERM received. Shutting down gracefully...');
     server.close(() => {
         console.log('Server closed');
         process.exit(0);
     });
 });
+
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+    // Don't exit immediately in production
+    if (process.env.NODE_ENV !== 'production') {
+        process.exit(1);
+    }
+});
+
+// Start the server
+startServer();
 
 // --- Server-Side Game Loop ---
 setInterval(() => {
