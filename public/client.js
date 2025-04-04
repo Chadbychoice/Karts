@@ -11,74 +11,51 @@ import { LuminosityHighPassShader } from './jsm/shaders/LuminosityHighPassShader
 import { OutputShader } from './jsm/shaders/OutputShader.js';
 
 // --- Basic Setup ---
+// Get the WebSocket URL based on environment
 const WEBSOCKET_URL = window.location.hostname === 'localhost' 
-    ? 'http://localhost:3000' 
-    : 'https://karts-websocket.up.railway.app';  // We'll set this up on Railway
+    ? 'http://localhost:3000'
+    : window.location.origin;
 
+// Configure Socket.IO client
 const socket = io(WEBSOCKET_URL, {
-    transports: ['websocket'],
+    path: '/socket.io/',
+    transports: ['websocket', 'polling'],
+    upgrade: true,
+    rememberUpgrade: true,
+    timeout: 20000,
     reconnection: true,
-    reconnectionAttempts: Infinity,
+    reconnectionAttempts: 5,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
-    timeout: 20000,
     autoConnect: true,
     forceNew: true
 });
 
 // Add connection event handlers
-socket.io.on("error", (error) => {
-    console.error('Socket.IO error:', error);
-    showReconnectMessage(`Connection error: ${error.message}`);
-});
-
-socket.io.on("reconnect_attempt", (attempt) => {
-    console.log('Reconnection attempt:', attempt);
-    showReconnectMessage(`Attempting to reconnect... (Attempt ${attempt})`);
-});
-
-socket.io.on("reconnect_error", (error) => {
-    console.error('Reconnection error:', error);
-    showReconnectMessage(`Reconnection error: ${error.message}`);
-});
-
-socket.io.on("reconnect_failed", () => {
-    console.error('Reconnection failed');
-    showReconnectMessage('Unable to connect to game server. Please refresh the page.');
+socket.on('connect_error', (error) => {
+    console.error('Connection error:', error);
+    updateConnectionStatus('error', `Connection error: ${error.message}`);
 });
 
 socket.on('connect', () => {
-    console.log('Connected to game server');
-    const message = document.querySelector('.reconnect-message');
-    if (message) message.remove();
+    console.log('Connected to server');
+    updateConnectionStatus('connected');
 });
 
 socket.on('disconnect', (reason) => {
-    console.log('Disconnected from game server:', reason);
-    showReconnectMessage('Lost connection to game server. Attempting to reconnect...');
+    console.log('Disconnected:', reason);
+    updateConnectionStatus('disconnected', `Disconnected: ${reason}`);
 });
 
-socket.on('reconnect', (attemptNumber) => {
-    console.log('Reconnected to game server after', attemptNumber, 'attempts');
-    const message = document.querySelector('.reconnect-message');
-    if (message) message.remove();
-    socket.emit('requestGameState');
+socket.on('reconnect_attempt', (attemptNumber) => {
+    console.log('Attempting to reconnect:', attemptNumber);
+    updateConnectionStatus('reconnecting', `Reconnection attempt ${attemptNumber}`);
 });
 
-socket.on('connect_error', (error) => {
-    console.log('Connection error:', error);
-    showReconnectMessage('Connection error. Retrying...');
-});
-
-function showReconnectMessage(text) {
-    // Remove any existing message first
-    const existingMessage = document.querySelector('.reconnect-message');
-    if (existingMessage) existingMessage.remove();
-    
-    const message = document.createElement('div');
-    message.className = 'reconnect-message';
-    message.textContent = text;
-    document.body.appendChild(message);
+// Helper function to update connection status
+function updateConnectionStatus(status, message = '') {
+    // You can implement this to show connection status to users
+    console.log('Connection status:', status, message);
 }
 
 let scene = new THREE.Scene();

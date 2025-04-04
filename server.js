@@ -12,24 +12,37 @@ const __dirname = dirname(__filename);
 const app = express();
 const server = createServer(app);
 
-// Configure Socket.IO with more lenient settings
+// Configure Socket.IO with Railway-friendly settings
 const io = new Server(server, {
     cors: {
-        origin: process.env.NODE_ENV === 'production' ? ["https://*.up.railway.app", "https://*.vercel.app"] : "*",
+        origin: "*", // Allow all origins in production for now
         methods: ["GET", "POST", "OPTIONS"],
         allowedHeaders: ["Content-Type"],
         credentials: true
     },
     transports: ['websocket', 'polling'],
+    allowEIO3: true,
     pingTimeout: 60000,
     pingInterval: 25000,
     maxHttpBufferSize: 1e8,
+    path: '/socket.io/', // Explicit path
     serveClient: false,
-    allowEIO3: true
+    connectTimeout: 45000,
+    upgradeTimeout: 30000,
+    // Add adapter options
+    adapter: {
+        rooms: new Map(),
+        sids: new Map(),
+        pubClient: null,
+        subClient: null
+    }
 });
 
 // Use Railway's PORT or fallback
 const PORT = process.env.PORT || 3000;
+
+// Add trust proxy for Railway
+app.set('trust proxy', 1);
 
 // Ensure we're in the correct directory
 const publicPath = join(__dirname, 'public');
@@ -38,7 +51,12 @@ console.log('Public path:', publicPath);
 
 // Basic health check endpoint
 app.get('/health', (req, res) => {
-    res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+    res.status(200).json({ 
+        status: 'ok', 
+        timestamp: new Date().toISOString(),
+        port: PORT,
+        env: process.env.NODE_ENV
+    });
 });
 
 // Serve static files with proper MIME types
@@ -412,6 +430,8 @@ const startServer = () => {
             console.log(`Server running on port ${PORT}`);
             console.log('Environment:', process.env.NODE_ENV);
             console.log('Public directory:', publicPath);
+            console.log('Socket.IO path:', io.path());
+            console.log('Available transports:', io.engine.transports);
         });
     } catch (error) {
         console.error('Failed to start server:', error);
