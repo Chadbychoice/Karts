@@ -1,30 +1,15 @@
 {
     "version": 2,
     "builds": [
-        { "src": "server.js", "use": "@vercel/node" },
-        { "src": "public/**", "use": "@vercel/static" }
+        { "src": "public/**", "use": "@vercel/static" },
+        { "src": "server.js", "use": "@vercel/node" }
     ],
     "routes": [
-        {
-            "src": "/socket.io/(.*)",
-            "dest": "/server.js",
-            "check": true,
-            "headers": {
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS",
-                "Access-Control-Allow-Headers": "Origin, X-Requested-With, Content-Type, Accept",
-                "Access-Control-Allow-Credentials": "true"
-            }
-        },
-        { "src": "/style.css", "dest": "/public/style.css" },
-        { "src": "/Sprites/(.*)", "dest": "/public/Sprites/$1" },
-        { "src": "/textures/(.*)", "dest": "/public/textures/$1" },
-        { "src": "/jsm/(.*)", "dest": "/public/jsm/$1" },
-        { "src": "/client.js", "dest": "/public/client.js" },
-        {
-            "src": "/(.*)",
-            "dest": "/server.js",
-            "check": true
-        }
-    ]
+        { "src": "/socket.io/(.*)", "dest": "/server.js" },
+        { "src": "/health", "dest": "/server.js" },
+        { "src": "/(.*)", "dest": "/public/$1" }
+    ],
+    "env": {
+        "NODE_ENV": "production"
+    }
 } 
