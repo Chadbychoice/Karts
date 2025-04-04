@@ -16,6 +16,8 @@ const WEBSOCKET_URL = window.location.hostname === 'localhost'
     ? 'http://localhost:3000'
     : window.location.origin;
 
+console.log('Connecting to WebSocket server at:', WEBSOCKET_URL);
+
 // Configure Socket.IO client
 const socket = io(WEBSOCKET_URL, {
     path: '/socket.io/',
@@ -28,18 +30,29 @@ const socket = io(WEBSOCKET_URL, {
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
     autoConnect: true,
-    forceNew: true
+    forceNew: true,
+    withCredentials: true
 });
 
 // Add connection event handlers
 socket.on('connect_error', (error) => {
     console.error('Connection error:', error);
     updateConnectionStatus('error', `Connection error: ${error.message}`);
+    // Try to reconnect with polling if WebSocket fails
+    if (socket.io.opts.transports.includes('websocket')) {
+        console.log('Retrying with polling transport...');
+        socket.io.opts.transports = ['polling'];
+    }
 });
 
 socket.on('connect', () => {
     console.log('Connected to server');
     updateConnectionStatus('connected');
+    // If connected with polling, try to upgrade to WebSocket
+    if (!socket.io.opts.transports.includes('websocket')) {
+        console.log('Attempting to upgrade to WebSocket...');
+        socket.io.opts.transports = ['websocket', 'polling'];
+    }
 });
 
 socket.on('disconnect', (reason) => {
@@ -54,8 +67,8 @@ socket.on('reconnect_attempt', (attemptNumber) => {
 
 // Helper function to update connection status
 function updateConnectionStatus(status, message = '') {
-    // You can implement this to show connection status to users
     console.log('Connection status:', status, message);
+    // You can implement UI feedback here
 }
 
 let scene = new THREE.Scene();

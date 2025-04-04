@@ -5,8 +5,42 @@
         { "src": "server.js", "use": "@vercel/node" }
     ],
     "routes": [
-        { "src": "/socket.io/(.*)", "dest": "/server.js" },
+        {
+            "src": "/socket.io/(.*)",
+            "dest": "/server.js",
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS",
+                "Access-Control-Allow-Headers": "Origin, X-Requested-With, Content-Type, Accept",
+                "Access-Control-Allow-Credentials": "true"
+            }
+        },
         { "src": "/health", "dest": "/server.js" },
+        { 
+            "src": "/style.css",
+            "dest": "/public/style.css",
+            "headers": { "Content-Type": "text/css" }
+        },
+        {
+            "src": "/Sprites/(.*)\\.png$",
+            "dest": "/public/Sprites/$1.png",
+            "headers": { "Content-Type": "image/png" }
+        },
+        {
+            "src": "/textures/(.*)\\.png$",
+            "dest": "/public/textures/$1.png",
+            "headers": { "Content-Type": "image/png" }
+        },
+        {
+            "src": "/jsm/(.*)\\.js$",
+            "dest": "/public/jsm/$1.js",
+            "headers": { "Content-Type": "application/javascript" }
+        },
+        {
+            "src": "/client.js",
+            "dest": "/public/client.js",
+            "headers": { "Content-Type": "application/javascript" }
+        },
         { "src": "/(.*)", "dest": "/public/$1" }
     ],
     "env": {
