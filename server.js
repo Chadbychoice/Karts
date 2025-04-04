@@ -18,9 +18,9 @@ const io = new Server(server, {
         allowedHeaders: ["Content-Type"],
         credentials: true
     },
-    transports: ['websocket'],
-    pingTimeout: 10000,
-    pingInterval: 5000,
+    transports: ['websocket', 'polling'],
+    pingTimeout: 60000,
+    pingInterval: 25000,
     maxHttpBufferSize: 1e8,
     serveClient: false
 });
@@ -28,16 +28,15 @@ const io = new Server(server, {
 const PORT = process.env.PORT || 3000;
 const LEVELS_DIR = join(__dirname, 'levels');
 
-// --- Ensure Levels Directory Exists ---
+// --- Try to ensure Levels Directory Exists (but don't fail if we can't) ---
 try {
     if (!fs.existsSync(LEVELS_DIR)) {
-        fs.mkdirSync(LEVELS_DIR);
+        fs.mkdirSync(LEVELS_DIR, { recursive: true });
         console.log(`Created levels directory at: ${LEVELS_DIR}`);
     }
 } catch (err) {
-    console.error("Error creating levels directory:", err);
-    // Decide how to handle this - maybe exit?
-    process.exit(1);
+    console.warn("Warning: Could not create/access levels directory:", err.message);
+    // Continue execution - we'll handle missing levels gracefully
 }
 
 // --- Game State ---
@@ -164,13 +163,18 @@ function endRace() {
     }, 5000);
 }
 
-// Serve static files from the "public" directory with correct MIME types
-app.use(express.static('public', {
+// Serve static files from the "public" directory with proper MIME types
+const publicPath = join(__dirname, 'public');
+app.use(express.static(publicPath, {
     setHeaders: (res, path) => {
         if (path.endsWith('.css')) {
             res.setHeader('Content-Type', 'text/css');
         } else if (path.endsWith('.js')) {
             res.setHeader('Content-Type', 'application/javascript');
+        } else if (path.endsWith('.png')) {
+            res.setHeader('Content-Type', 'image/png');
+        } else if (path.endsWith('.jpg') || path.endsWith('.jpeg')) {
+            res.setHeader('Content-Type', 'image/jpeg');
         }
     }
 }));
@@ -403,6 +407,25 @@ io.on('connection', (socket) => {
 // Start the server
 server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+}).on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+        console.error(`Port ${PORT} is already in use. Trying again in 1 second...`);
+        setTimeout(() => {
+            server.close();
+            server.listen(PORT);
+        }, 1000);
+    } else {
+        console.error('Server error:', err);
+    }
+});
+
+// Handle process termination gracefully
+process.on('SIGTERM', () => {
+    console.log('SIGTERM received. Closing server...');
+    server.close(() => {
+        console.log('Server closed');
+        process.exit(0);
+    });
 });
 
 // --- Server-Side Game Loop ---
@@ -470,18 +493,6 @@ setInterval(() => {
         }
     }
 }, SERVER_TICK_RATE);
-
-// Add error handling for the server
-server.on('error', (error) => {
-    console.error('Server error:', error);
-    if (error.code === 'EADDRINUSE') {
-        console.log('Address in use, retrying in 1 second...');
-        setTimeout(() => {
-            server.close();
-            server.listen(PORT);
-        }, 1000);
-    }
-});
 
 // Add error handling for Socket.IO
 io.on('error', (error) => {

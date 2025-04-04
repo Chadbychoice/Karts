@@ -6,19 +6,22 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js",
-    "build": "echo 'No build step required'"
+    "dev": "nodemon server.js",
+    "build": "echo 'No build step required'",
+    "postinstall": "mkdir -p levels"
   },
   "dependencies": {
     "express": "^4.18.2",
     "socket.io": "^4.7.2"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
   },
   "devDependencies": {
     "nodemon": "^2.0.7"
   },
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "private": true
 }
