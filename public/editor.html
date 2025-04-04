@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Newrio Kart - Course Editor</title>
+    <link rel="stylesheet" href="editor.css">
+</head>
+<body>
+    <div id="editor-container">
+        <div id="palette">
+            <h2>Elements</h2>
+            <!-- Palette items will go here -->
+            <div id="selected-tile">Selected: None</div>
+        </div>
+        <div id="canvas-container">
+            <canvas id="editor-canvas"></canvas>
+        </div>
+        <div id="controls">
+            <h2>Controls</h2>
+             <button id="save-button">Save Course</button>
+             <input type="text" id="course-name" placeholder="Course Name">
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="editor.js"></script>
+</body>
+</html> 

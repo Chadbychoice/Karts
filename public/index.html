@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Newrio Kart</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body { margin: 0; }
+        canvas { display: block; }
+        #game-container { position: relative; width: 100vw; height: 100vh; }
+        
+        /* Character Selection Styles */
+        #character-selection {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            color: white;
+            text-align: center;
+        }
+        
+        #character-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin: 20px 0;
+        }
+        
+        .character-slot {
+            width: 100px;
+            height: 100px;
+            border: 2px solid #444;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: border-color 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+        }
+        
+        .character-slot:hover {
+            border-color: #666;
+        }
+        
+        .character-slot.selected {
+            border-color: #fff;
+        }
+        
+        /* Waiting Screen Styles */
+        #waiting-screen {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            color: white;
+            text-align: center;
+        }
+        
+        /* Character Colors */
+        .character-1 { background-color: #ff0000; }
+        .character-2 { background-color: #00ff00; }
+        .character-3 { background-color: #0000ff; }
+        .character-4 { background-color: #ffff00; }
+        .character-5 { background-color: #ff00ff; }
+        .character-6 { background-color: #00ffff; }
+        .character-7 { background-color: #ffffff; }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <!-- Character Selection Screen -->
+        <div id="character-selection">
+            <h2>Choose Your Racer</h2>
+            <div id="character-grid"></div>
+            <div id="selected-character-name"></div>
+        </div>
+        
+        <!-- Waiting Screen -->
+        <div id="waiting-screen">
+            <h2>Waiting for other players...</h2>
+            <p>Players ready: <span id="ready-count">0</span></p>
+        </div>
+    </div>
+    <!-- <script src="/socket.io/socket.io.js"></script> -->
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" integrity="sha384-2huaZvOR9iDzHqslqwpR87isEmrfxqyWOF7hr7BY6KG0+hVKLoEXMPUJw3ynWuhO" crossorigin="anonymous"></script>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "/jsm/"
+            }
+        }
+    </script>
+    <script type="module" src="client.js"></script>
+</body>
+</html> 

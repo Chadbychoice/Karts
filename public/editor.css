@@ -1,0 +1,83 @@
+/* Basic Editor Styles */
+
+body {
+    margin: 0;
+    font-family: sans-serif;
+    display: flex;
+    height: 100vh;
+    background-color: #333;
+    color: #eee;
+}
+
+#editor-container {
+    display: flex;
+    flex-grow: 1;
+}
+
+#palette {
+    width: 200px;
+    background-color: #444;
+    padding: 10px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+#palette h2 {
+    margin-top: 0;
+    text-align: center;
+}
+
+#canvas-container {
+    flex-grow: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: #282828;
+    overflow: hidden; /* Clip canvas if it's too big */
+}
+
+#editor-canvas {
+    border: 1px solid #666;
+    background-color: #555; /* Temp background */
+}
+
+#controls {
+     width: 200px;
+     background-color: #444;
+     padding: 10px;
+     display: flex;
+     flex-direction: column;
+}
+
+#controls h2 {
+    margin-top: 0;
+    text-align: center;
+}
+
+#controls button, #controls input {
+    margin-top: 10px;
+    padding: 8px;
+}
+
+/* Add styles for palette items later */
+.palette-item {
+    border: 1px solid #777;
+    padding: 5px;
+    margin-bottom: 5px;
+    cursor: pointer;
+    text-align: center;
+    background-color: #5a5a5a;
+}
+
+.palette-item.selected {
+    background-color: #77aaff;
+    border-color: #fff;
+}
+
+#selected-tile {
+    margin-top: auto; /* Push to bottom */
+    padding-top: 10px;
+    border-top: 1px solid #666;
+    font-size: 0.9em;
+} 
