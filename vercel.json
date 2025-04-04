@@ -1,13 +1,12 @@
 {
     "version": 2,
     "builds": [
-        { "src": "public/**", "use": "@vercel/static" },
-        { "src": "server.js", "use": "@vercel/node" }
+        { "src": "public/**", "use": "@vercel/static" }
     ],
     "routes": [
         {
             "src": "/socket.io/(.*)",
-            "dest": "/server.js",
+            "dest": "https://karts-websocket.onrender.com/socket.io/$1",
             "headers": {
                 "Access-Control-Allow-Origin": "*",
                 "Access-Control-Allow-Methods": "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS",
@@ -15,35 +14,29 @@
                 "Access-Control-Allow-Credentials": "true"
             }
         },
-        { "src": "/health", "dest": "/server.js" },
         { 
-            "src": "/style.css",
-            "dest": "/public/style.css",
-            "headers": { "Content-Type": "text/css" }
+            "src": "/style\\.css",
+            "dest": "/style.css"
         },
         {
-            "src": "/Sprites/(.*)\\.png$",
-            "dest": "/public/Sprites/$1.png",
-            "headers": { "Content-Type": "image/png" }
+            "src": "/Sprites/characters/.*\\.png",
+            "dest": "/Sprites/characters/$1.png"
         },
         {
-            "src": "/textures/(.*)\\.png$",
-            "dest": "/public/textures/$1.png",
-            "headers": { "Content-Type": "image/png" }
+            "src": "/textures/.*\\.png",
+            "dest": "/textures/$1.png"
         },
         {
-            "src": "/jsm/(.*)\\.js$",
-            "dest": "/public/jsm/$1.js",
-            "headers": { "Content-Type": "application/javascript" }
+            "src": "/jsm/.*\\.js",
+            "dest": "/jsm/$1.js"
         },
         {
-            "src": "/client.js",
-            "dest": "/public/client.js",
-            "headers": { "Content-Type": "application/javascript" }
+            "src": "/client\\.js",
+            "dest": "/client.js"
         },
-        { "src": "/(.*)", "dest": "/public/$1" }
-    ],
-    "env": {
-        "NODE_ENV": "production"
-    }
+        { 
+            "src": "/(.*)",
+            "dest": "/$1"
+        }
+    ]
 } 

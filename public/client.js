@@ -14,7 +14,7 @@ import { OutputShader } from './jsm/shaders/OutputShader.js';
 // Get the WebSocket URL based on environment
 const WEBSOCKET_URL = window.location.hostname === 'localhost' 
     ? 'http://localhost:3000'
-    : window.location.origin;
+    : 'https://karts-websocket.onrender.com';
 
 console.log('Connecting to WebSocket server at:', WEBSOCKET_URL);
 
@@ -24,7 +24,7 @@ const socket = io(WEBSOCKET_URL, {
     transports: ['websocket', 'polling'],
     upgrade: true,
     rememberUpgrade: true,
-    timeout: 20000,
+    timeout: 10000,
     reconnection: true,
     reconnectionAttempts: 5,
     reconnectionDelay: 1000,
@@ -61,14 +61,14 @@ socket.on('disconnect', (reason) => {
 });
 
 socket.on('reconnect_attempt', (attemptNumber) => {
-    console.log('Attempting to reconnect:', attemptNumber);
+    console.log(`Reconnection attempt ${attemptNumber}`);
     updateConnectionStatus('reconnecting', `Reconnection attempt ${attemptNumber}`);
 });
 
 // Helper function to update connection status
 function updateConnectionStatus(status, message = '') {
     console.log('Connection status:', status, message);
-    // You can implement UI feedback here
+    // You can update UI elements here if needed
 }
 
 let scene = new THREE.Scene();
