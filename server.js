@@ -423,33 +423,47 @@ io.on('connection', (socket) => {
     });
 });
 
-// Improve server startup
-const startServer = () => {
-    try {
-        server.listen(PORT, '0.0.0.0', () => {
-            console.log(`Server running on port ${PORT}`);
-            console.log('Environment:', process.env.NODE_ENV);
-            console.log('Public directory:', publicPath);
-            console.log('Socket.IO path:', io.path());
-            console.log('Available transports:', io.engine.transports);
-        });
-    } catch (error) {
-        console.error('Failed to start server:', error);
-        process.exit(1);
-    }
-};
+// Improve server startup with better error handling
+const startServer = async () => {
+    return new Promise((resolve, reject) => {
+        try {
+            // Kill any existing process on the port (Railway specific)
+            if (process.env.NODE_ENV === 'production') {
+                const exec = require('child_process').exec;
+                exec(`lsof -i :${PORT} | grep LISTEN | awk '{print $2}' | xargs kill -9`, () => {
+                    console.log(`Attempted to clear port ${PORT}`);
+                });
+            }
 
-// Handle server errors
-server.on('error', (error) => {
-    console.error('Server error:', error);
-    if (error.code === 'EADDRINUSE') {
-        console.log(`Port ${PORT} is busy. Retrying in 1 second...`);
-        setTimeout(() => {
-            server.close();
-            startServer();
-        }, 1000);
-    }
-});
+            const serverInstance = server.listen(PORT, '0.0.0.0', () => {
+                console.log(`Server running on port ${PORT}`);
+                console.log('Environment:', process.env.NODE_ENV);
+                console.log('Public directory:', publicPath);
+                console.log('Socket.IO path:', io.path());
+                console.log('Available transports:', io.engine.transports);
+                console.log('Server URL:', process.env.RAILWAY_STATIC_URL || `http://localhost:${PORT}`);
+                resolve(serverInstance);
+            });
+
+            serverInstance.on('error', (error) => {
+                if (error.code === 'EADDRINUSE') {
+                    console.log(`Port ${PORT} is busy. Retrying in 1 second...`);
+                    serverInstance.close();
+                    setTimeout(() => {
+                        serverInstance.listen(PORT, '0.0.0.0');
+                    }, 1000);
+                } else {
+                    console.error('Server error:', error);
+                    reject(error);
+                }
+            });
+
+        } catch (error) {
+            console.error('Failed to start server:', error);
+            reject(error);
+        }
+    });
+};
 
 // Handle process signals
 process.on('SIGTERM', () => {
@@ -460,16 +474,42 @@ process.on('SIGTERM', () => {
     });
 });
 
+process.on('SIGINT', () => {
+    console.log('SIGINT received. Shutting down gracefully...');
+    server.close(() => {
+        console.log('Server closed');
+        process.exit(0);
+    });
+});
+
 process.on('uncaughtException', (error) => {
     console.error('Uncaught Exception:', error);
-    // Don't exit immediately in production
+    if (process.env.NODE_ENV === 'production') {
+        // Log the error but keep the server running in production
+        console.error('Server continuing despite uncaught exception in production');
+    } else {
+        // In development, exit to make issues more visible
+        process.exit(1);
+    }
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    // Log but don't exit in production
     if (process.env.NODE_ENV !== 'production') {
         process.exit(1);
     }
 });
 
 // Start the server
-startServer();
+(async () => {
+    try {
+        await startServer();
+    } catch (error) {
+        console.error('Failed to start server:', error);
+        process.exit(1);
+    }
+})();
 
 // --- Server-Side Game Loop ---
 setInterval(() => {
