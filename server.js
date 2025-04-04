@@ -11,7 +11,16 @@ const __dirname = dirname(__filename);
 
 const app = express();
 const server = createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    },
+    transports: ['polling', 'websocket'],
+    allowEIO3: true,
+    pingTimeout: 60000,
+    pingInterval: 25000
+});
 
 const PORT = process.env.PORT || 3000;
 const LEVELS_DIR = join(__dirname, 'levels');
