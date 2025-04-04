@@ -1,10 +1,16 @@
 {
     "version": 2,
     "builds": [
-        { "src": "server.js", "use": "@vercel/node" }
+        { "src": "server.js", "use": "@vercel/node" },
+        { "src": "public/**", "use": "@vercel/static" }
     ],
     "routes": [
         { "src": "/socket.io/(.*)", "dest": "server.js" },
+        { "src": "/style.css", "dest": "/public/style.css" },
+        { "src": "/Sprites/(.*)", "dest": "/public/Sprites/$1" },
+        { "src": "/textures/(.*)", "dest": "/public/textures/$1" },
+        { "src": "/jsm/(.*)", "dest": "/public/jsm/$1" },
+        { "src": "/client.js", "dest": "/public/client.js" },
         { "src": "/(.*)", "dest": "server.js" }
     ]
 } 

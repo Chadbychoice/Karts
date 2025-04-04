@@ -144,8 +144,16 @@ function endRace() {
     }, 5000);
 }
 
-// Serve static files from the "public" directory
-app.use(express.static('public'));
+// Serve static files from the "public" directory with correct MIME types
+app.use(express.static('public', {
+    setHeaders: (res, path) => {
+        if (path.endsWith('.css')) {
+            res.setHeader('Content-Type', 'text/css');
+        } else if (path.endsWith('.js')) {
+            res.setHeader('Content-Type', 'application/javascript');
+        }
+    }
+}));
 app.use('/node_modules', express.static(join(__dirname, 'node_modules')));
 
 // Handle root route to serve index.html
