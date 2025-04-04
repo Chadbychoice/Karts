@@ -19,7 +19,10 @@ const io = new Server(server, {
     transports: ['polling', 'websocket'],
     allowEIO3: true,
     pingTimeout: 60000,
-    pingInterval: 25000
+    pingInterval: 25000,
+    path: '/socket.io/',
+    serveClient: false,
+    cookie: false
 });
 
 const PORT = process.env.PORT || 3000;
@@ -359,6 +362,33 @@ io.on('connection', (socket) => {
             console.error(`Error stringifying level data for ${name}:`, stringifyError);
             socket.emit('saveLevelError', { name: name, message: "Server error processing level data." });
         }
+    });
+
+    // Add this new event handler for game state requests
+    socket.on('requestGameState', () => {
+        console.log(`Player ${socket.id} requested game state refresh`);
+        if (!gameState.players[socket.id]) {
+            // If player doesn't exist, recreate their state
+            gameState.players[socket.id] = {
+                id: socket.id,
+                characterId: null,
+                position: null,
+                rotation: null,
+                ready: false,
+                finished: false,
+                laps: 0,
+                isDrifting: false,
+                driftDirection: 0,
+                isBoosting: false,
+                boostLevel: 0
+            };
+        }
+        // Send current state
+        let stateToSend = gameState.currentState;
+        if (gameState.currentState === GAME_STATES.RACING || gameState.currentState === GAME_STATES.POST_RACE) {
+            stateToSend = 'waiting';
+        }
+        socket.emit('updateGameState', stateToSend, gameState.players);
     });
 });
 

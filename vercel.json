@@ -5,7 +5,15 @@
         { "src": "public/**", "use": "@vercel/static" }
     ],
     "routes": [
-        { "src": "/socket.io/(.*)", "dest": "server.js" },
+        {
+            "src": "/socket.io/(.*)",
+            "dest": "server.js",
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type"
+            }
+        },
         { "src": "/style.css", "dest": "/public/style.css" },
         { "src": "/Sprites/(.*)", "dest": "/public/Sprites/$1" },
         { "src": "/textures/(.*)", "dest": "/public/textures/$1" },

@@ -14,24 +14,30 @@ import { OutputShader } from './jsm/shaders/OutputShader.js';
 const socket = io(window.location.hostname === 'localhost' ? 'http://localhost:3000' : undefined, {
     transports: ['polling', 'websocket'],
     reconnection: true,
-    reconnectionAttempts: 5,
+    reconnectionAttempts: Infinity,  // Keep trying to reconnect indefinitely
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
-    timeout: 20000
+    timeout: 20000,
+    autoConnect: true,
+    forceNew: true
 });
 
 // Add connection event handlers
 socket.on('connect', () => {
     console.log('Connected to server');
+    // Remove any existing reconnection message
+    const message = document.querySelector('.reconnect-message');
+    if (message) message.remove();
+});
+
+socket.on('connect_error', (error) => {
+    console.log('Connection error:', error);
+    showReconnectMessage('Connection error. Retrying...');
 });
 
 socket.on('disconnect', (reason) => {
     console.log('Disconnected from server:', reason);
-    // Show a reconnecting message to the user
-    const message = document.createElement('div');
-    message.className = 'reconnect-message';
-    message.textContent = 'Lost connection to server. Attempting to reconnect...';
-    document.body.appendChild(message);
+    showReconnectMessage('Lost connection to server. Attempting to reconnect...');
 });
 
 socket.on('reconnect', (attemptNumber) => {
@@ -39,7 +45,25 @@ socket.on('reconnect', (attemptNumber) => {
     // Remove the reconnecting message
     const message = document.querySelector('.reconnect-message');
     if (message) message.remove();
+    // Request current game state after reconnection
+    socket.emit('requestGameState');
 });
+
+socket.on('reconnect_attempt', (attemptNumber) => {
+    console.log('Attempting to reconnect:', attemptNumber);
+    showReconnectMessage(`Attempting to reconnect... (Attempt ${attemptNumber})`);
+});
+
+function showReconnectMessage(text) {
+    // Remove any existing message first
+    const existingMessage = document.querySelector('.reconnect-message');
+    if (existingMessage) existingMessage.remove();
+    
+    const message = document.createElement('div');
+    message.className = 'reconnect-message';
+    message.textContent = text;
+    document.body.appendChild(message);
+}
 
 let scene = new THREE.Scene();
 let camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
