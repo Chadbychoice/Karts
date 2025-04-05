@@ -105,14 +105,14 @@ const selectedCharacterNameElement = document.getElementById('selected-character
 
 // --- Character Data ---
 const characters = {
-    1: { name: "Turbo Hank", baseSpritePath: "/Sprites/characters/1" },
-    2: { name: "Stella Vroom", baseSpritePath: "/Sprites/characters/2" },
-    3: { name: "Bongo Blitz", baseSpritePath: "/Sprites/characters/3" },
-    4: { name: "Krash Krawl", baseSpritePath: "/Sprites/characters/4" },
-    5: { name: "Kara Krawl", baseSpritePath: "/Sprites/characters/5" },
-    6: { name: "Freddy", baseSpritePath: "/Sprites/characters/6" },
-    7: { name: "Laurette", baseSpritePath: "/Sprites/characters/7" },
-    8: { name: "Fierry Farez", baseSpritePath: "/Sprites/characters/8" },
+    1: { name: "Turbo Hank", baseSpritePath: "/Sprites/characters/1/" },
+    2: { name: "Stella Vroom", baseSpritePath: "/Sprites/characters/2/" },
+    3: { name: "Bongo Blitz", baseSpritePath: "/Sprites/characters/3/" },
+    4: { name: "Krash Krawl", baseSpritePath: "/Sprites/characters/4/" },
+    5: { name: "Kara Krawl", baseSpritePath: "/Sprites/characters/5/" },
+    6: { name: "Freddy", baseSpritePath: "/Sprites/characters/6/" },
+    7: { name: "Laurette", baseSpritePath: "/Sprites/characters/7/" },
+    8: { name: "Fierry Farez", baseSpritePath: "/Sprites/characters/8/" }
 };
 
 const characterSpriteAngles = ['f', 'fr', 'r', 'br', 'b', 'bl', 'l', 'fl'];
@@ -122,6 +122,11 @@ const characterTextures = {}; // Cache for loaded textures { 'charId_angle': THR
 const flameTextures = [];
 const textures = {}; // <<< ADD Global object for course textures
 let particlesMaterial;
+
+// Add base URL handling for assets
+const BASE_URL = window.location.hostname === 'localhost' 
+    ? '' 
+    : 'https://karts-websocket.onrender.com';
 
 function preloadAssets() {
     console.log("Preloading assets...");
@@ -220,7 +225,7 @@ function getCharacterTexture(characterId, angle = 'b') {
             console.error(`Invalid characterId: ${characterId}`);
             return null;
         }
-        const texturePath = `${characterData.baseSpritePath}${angle}.png`;
+        const texturePath = `${BASE_URL}${characterData.baseSpritePath}${angle}.png`;
         console.log(`Loading texture: ${texturePath}`); // Add logging for texture loading
         characterTextures[cacheKey] = textureLoader.load(
             texturePath,
@@ -265,21 +270,21 @@ let characterIds; // Declare globally
 
 // --- Character Selection Logic ---
 function setupCharacterSelection() {
-    console.log("Running setupCharacterSelection..."); // Log: Function called
+    console.log("Running setupCharacterSelection...");
     const characterGrid = document.getElementById('character-grid');
-    console.log("Character grid element:", characterGrid); // Log: Grid element found?
-    if (!characterGrid) { console.error("Character grid DIV not found!"); return; } // Early exit if grid missing
-    characterGrid.innerHTML = ''; // Clear previous slots
-    console.log("Characters data:", characters); // Log: Characters object
-    characterIds = Object.keys(characters).map(Number); // Assign to global variable (remove const)
-    console.log("Character IDs:", characterIds); // Log: IDs array
+    console.log("Character grid element:", characterGrid);
+    if (!characterGrid) { console.error("Character grid DIV not found!"); return; }
+    characterGrid.innerHTML = '';
+    console.log("Characters data:", characters);
+    characterIds = Object.keys(characters).map(Number);
+    console.log("Character IDs:", characterIds);
     characterIds.forEach((id, index) => {
-        console.log(`[Loop ${index}] Processing character ID: ${id}`); // Log: Loop iteration
+        console.log(`[Loop ${index}] Processing character ID: ${id}`);
         const char = characters[id];
         console.log(`[Loop ${index}] Character data:`, char);
         if (!char) {
             console.error(`[Loop ${index}] Character data not found for ID: ${id}`);
-            return; // Skip this iteration if character data is missing
+            return;
         }
         const slot = document.createElement('div');
         slot.classList.add('character-slot');
@@ -287,17 +292,17 @@ function setupCharacterSelection() {
         slot.dataset.index = index;
         console.log(`[Loop ${index}] Created slot:`, slot);
 
-        const preview = document.createElement('img'); // Using img for simplicity now
+        const preview = document.createElement('img');
         preview.classList.add('character-preview');
-        const previewTexturePath = `${char.baseSpritePath}f.png`;
+        const previewTexturePath = `${BASE_URL}${char.baseSpritePath}f.png`;
         console.log(`[Loop ${index}] Preview image path:`, previewTexturePath);
         preview.src = previewTexturePath;
         preview.alt = char.name;
-        preview.onerror = () => { // Handle missing images gracefully
-            console.error(`[Loop ${index}] ERROR loading preview image: ${preview.src}`); // Log error specifically
+        preview.onerror = () => {
+            console.error(`[Loop ${index}] ERROR loading preview image: ${preview.src}`);
             preview.alt = `${char.name} (Image Missing)`;
-           preview.style.backgroundColor = '#555';
-           preview.style.border = '1px dashed white';
+            preview.style.backgroundColor = '#555';
+            preview.style.border = '1px dashed white';
         };
         console.log(`[Loop ${index}] Created preview image element:`, preview);
         slot.appendChild(preview);
@@ -329,7 +334,7 @@ function updateCharacterSelectionHighlight() {
              // Reset non-selected to front view
              const charId = slot.dataset.characterId;
              if (characters[charId] && imgElement) {
-                 imgElement.src = `${characters[charId].baseSpritePath}f.png`;
+                 imgElement.src = `${BASE_URL}${characters[charId].baseSpritePath}f.png`;
                  imgElement.onerror = () => { imgElement.style.backgroundColor = '#555'; }; // Reset error state too
              }
         }
@@ -343,11 +348,11 @@ function startCharacterRotation(imgElement, characterData) {
     stopCharacterRotation(imgElement, intervalKey); // Stop existing interval for this element
 
     let currentAngleIndex = 0;
-    imgElement.src = `${characterData.baseSpritePath}${characterSpriteAngles[currentAngleIndex]}.png`;
+    imgElement.src = `${BASE_URL}${characterData.baseSpritePath}${characterSpriteAngles[currentAngleIndex]}.png`;
 
     rotationIntervals[intervalKey] = setInterval(() => {
         currentAngleIndex = (currentAngleIndex + 1) % characterSpriteAngles.length;
-        const nextSrc = `${characterData.baseSpritePath}${characterSpriteAngles[currentAngleIndex]}.png`;
+        const nextSrc = `${BASE_URL}${characterData.baseSpritePath}${characterSpriteAngles[currentAngleIndex]}.png`;
         imgElement.src = nextSrc;
         imgElement.onerror = () => {
              console.warn(`Sprite not found during rotation: ${imgElement.src}`);

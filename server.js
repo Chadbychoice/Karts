@@ -213,7 +213,8 @@ io.on('connection', (socket) => {
         velocity: 0,
         lap: 1,
         nextCheckpoint: 0,
-        finishedRace: false
+        finishedRace: false,
+        isSpectator: false // Ensure players are never spectators
     };
 
     // Send current game state to the new player
@@ -232,6 +233,7 @@ io.on('connection', (socket) => {
             // Immediately start the player in racing state
             gameState.players[socket.id].position = { ...startPos };
             gameState.players[socket.id].rotation = { ...courses[gameState.currentCourse].startRotation };
+            gameState.players[socket.id].isSpectator = false; // Ensure player is not a spectator
 
             // Broadcast only this player's ready state
             io.emit('updateGameState', gameState.state, {
