@@ -540,15 +540,15 @@ function addPlayerObject(playerId, playerData) {
         sprite.userData = { characterId: characterId, currentAngleCode: initialAngleCode };
         playerObjects[playerId] = sprite;
 
-        // Set initial sprite position with reduced height
+        // Set initial sprite position with proper height
         if (playerData.position) {
             sprite.position.set(
                 playerData.position.x,
-                playerData.position.y + 0.5, // Reduced from playerSpriteScale / 2
+                playerData.position.y + playerSpriteScale / 2, // Restore original height
                 playerData.position.z
             );
         } else {
-            sprite.position.set(0, 0.5, 0); // Reduced height
+            sprite.position.set(0, playerSpriteScale / 2, 0); // Restore original height
             console.warn(`Player ${playerId} created without initial position.`);
         }
         scene.add(sprite);

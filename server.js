@@ -81,7 +81,7 @@ app.get('/health', (req, res) => {
 
 // Course data endpoint
 app.get('/api/courses/:id', (req, res) => {
-    const courseId = parseInt(req.params.id);
+    const courseId = req.params.id;
     const course = courses[courseId];
     if (course) {
         res.json(course);
@@ -107,19 +107,22 @@ function checkCollisions(gameState) {
             const playerA = players[i];
             const playerB = players[j];
             
+            // Skip if either player doesn't have a position
+            if (!playerA.position || !playerB.position) continue;
+            
             // Calculate distance between players
             const dx = playerA.position.x - playerB.position.x;
             const dz = playerA.position.z - playerB.position.z;
             const distance = Math.sqrt(dx * dx + dz * dz);
             
             // Collision radius (sum of both kart radii)
-            const collisionThreshold = 3.0; // Increased for better detection
+            const collisionThreshold = 2.5; // Adjusted for better detection
             
             if (distance < collisionThreshold) {
                 // Calculate collision point (midpoint between players)
                 const collisionPoint = {
                     x: (playerA.position.x + playerB.position.x) / 2,
-                    y: Math.max(playerA.position.y, playerB.position.y) + 0.5, // Slightly above ground
+                    y: Math.max(playerA.position.y, playerB.position.y) + 1.0, // Raise spark height
                     z: (playerA.position.z + playerB.position.z) / 2
                 };
                 
@@ -131,7 +134,7 @@ function checkCollisions(gameState) {
                     const nz = dz / distance;
                     
                     // Strong immediate separation to prevent passing through
-                    const separationForce = overlap * 2.0;
+                    const separationForce = overlap * 3.0; // Increased force
                     
                     // Update positions with strong separation
                     playerA.position.x += nx * separationForce;
@@ -141,15 +144,16 @@ function checkCollisions(gameState) {
                     
                     // Calculate relative velocity
                     const relativeVelocity = Math.abs(playerA.velocity - playerB.velocity);
+                    const velocityFactor = Math.min(Math.max(relativeVelocity, 0.3), 1.0); // Ensure minimum effect
                     
                     // Exchange velocities with dampening
-                    const restitution = 0.5; // Bounce factor
+                    const restitution = 0.8; // Increased bounce factor
                     const tempVel = playerA.velocity;
                     playerA.velocity = playerB.velocity * restitution;
                     playerB.velocity = tempVel * restitution;
                     
                     // Add some sideways velocity for more dynamic collisions
-                    const sideForce = relativeVelocity * 0.3;
+                    const sideForce = relativeVelocity * 0.5; // Increased side force
                     playerA.sideVelocity = (Math.random() - 0.5) * sideForce;
                     playerB.sideVelocity = (Math.random() - 0.5) * sideForce;
                     
@@ -158,8 +162,16 @@ function checkCollisions(gameState) {
                         playerA_id: playerA.id,
                         playerB_id: playerB.id,
                         collisionPoint: collisionPoint,
-                        intensity: Math.min(relativeVelocity / 10, 1), // Normalized intensity
-                        sparkRange: Math.min(relativeVelocity * 0.5, 3) // Limited spark range
+                        intensity: velocityFactor,
+                        sparkRange: Math.min(relativeVelocity * 0.8, 2.0) // Adjusted spark range
+                    });
+
+                    // Log collision for debugging
+                    console.log('Collision detected:', {
+                        distance,
+                        separationForce,
+                        velocityFactor,
+                        sparkRange: Math.min(relativeVelocity * 0.8, 2.0)
                     });
                 }
             }
