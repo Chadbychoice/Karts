@@ -15,14 +15,19 @@ const server = createServer(app);
 const courses = {
     1: {
         id: 1,
-        name: "Beginner's Track",
+        name: "Test Track",
         checkpoints: [
             { x: 0, y: 0, z: 0 },
             { x: 100, y: 0, z: 0 },
             { x: 100, y: 0, z: 100 },
             { x: 0, y: 0, z: 100 }
         ],
-        startPosition: { x: 0, y: 1, z: 0 },
+        startPositions: [
+            { x: 0, y: 1, z: 0 },
+            { x: 2, y: 1, z: 0 },
+            { x: -2, y: 1, z: 0 },
+            { x: 4, y: 1, z: 0 }
+        ],
         startRotation: { y: 0 },
         terrain: [
             { type: 'road', x: 0, y: 0, z: 0, width: 20, length: 200 },
@@ -100,7 +105,7 @@ io.on('connection', (socket) => {
         connected: true,
         timestamp: Date.now(),
         characterId: null,
-        position: courses[1].startPosition,
+        position: courses[1].startPositions[0],
         rotation: courses[1].startRotation,
         velocity: 0,
         lap: 1,
@@ -130,13 +135,15 @@ io.on('connection', (socket) => {
                 console.log('All players ready, starting race!');
                 gameState.state = 'racing';
                 
-                // Reset all players to start position
-                Object.values(gameState.players).forEach(player => {
-                    player.position = { ...courses[gameState.currentCourse].startPosition };
-                    player.rotation = { ...courses[gameState.currentCourse].startRotation };
-                    player.lap = 1;
-                    player.nextCheckpoint = 0;
-                    player.finishedRace = false;
+                // Assign start positions to players
+                const readyPlayers = Array.from(gameState.readyPlayers);
+                readyPlayers.forEach((playerId, index) => {
+                    const startPos = courses[gameState.currentCourse].startPositions[index] || courses[gameState.currentCourse].startPositions[0];
+                    gameState.players[playerId].position = { ...startPos };
+                    gameState.players[playerId].rotation = { ...courses[gameState.currentCourse].startRotation };
+                    gameState.players[playerId].lap = 1;
+                    gameState.players[playerId].nextCheckpoint = 0;
+                    gameState.players[playerId].finishedRace = false;
                 });
 
                 io.emit('updateGameState', gameState.state, gameState.players, {

@@ -420,9 +420,8 @@ socket.on('updateGameState', (state, serverPlayers, options) => {
 
     if (state === 'racing') {
         if (!raceInitialized) {
-            const courseData = options?.courseData || courseLayouts[1]; // Fallback to default course
-            initializeRaceScene(players, { courseData });
-            raceInitialized = true;
+            console.log('Initializing race with options:', options);
+            initializeRaceScene(players, options);
         }
         // Update all player positions
         Object.entries(players).forEach(([playerId, playerData]) => {
@@ -1206,7 +1205,7 @@ function createCourse(courseData) {
 }
 
 // --- Race Initialization ---
-function initializeRaceScene(initialPlayers, levelData) {
+function initializeRaceScene(initialPlayers, options) {
     console.log("Initializing race scene...");
     if (raceInitialized) { 
         cleanupRaceScene();
@@ -1218,25 +1217,22 @@ function initializeRaceScene(initialPlayers, levelData) {
     scene.background = new THREE.Color(0x87CEEB); // Light sky blue
 
     // Enhanced lighting setup
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); // Increased ambient light
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
     scene.add(ambientLight);
 
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0); // Increased intensity
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
     directionalLight.position.set(50, 100, 50);
     directionalLight.castShadow = true;
     directionalLight.shadow.mapSize.width = 2048;
     directionalLight.shadow.mapSize.height = 2048;
     scene.add(directionalLight);
 
-    // Add a hemisphere light for better ambient lighting
     const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
     scene.add(hemisphereLight);
 
     // Camera setup
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 10, 15);
-    camera.lookAt(0, 0, 0);
-
+    
     // Enable shadows
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -1247,19 +1243,42 @@ function initializeRaceScene(initialPlayers, levelData) {
     composer.addPass(renderPass);
 
     // Load course
-    if (levelData?.courseData) {
-        console.log("Loading course from received level data:", levelData.courseData.name);
-        createCourseFromData(levelData.courseData);
+    console.log("Loading course data:", options?.courseData);
+    if (options?.courseData) {
+        createCourseFromData(options.courseData);
     } else {
-        console.log("No level data received, loading default course.");
+        console.log("No course data provided, loading default course");
         createCourse(courseLayouts[1]);
     }
 
     // Add players
     console.log("Adding initial player objects:", initialPlayers);
-    updatePlayerObjects();
-    setupInitialCameraPosition();
-    updateAllSpriteAngles();
+    Object.entries(initialPlayers).forEach(([playerId, playerData]) => {
+        addPlayerObject(playerId, playerData);
+    });
+
+    // Set camera for local player
+    if (localPlayerId && players[localPlayerId]) {
+        const localPlayer = players[localPlayerId];
+        camera.position.set(
+            localPlayer.position.x,
+            localPlayer.position.y + 6,
+            localPlayer.position.z + 6
+        );
+        camera.lookAt(
+            localPlayer.position.x,
+            localPlayer.position.y + 3.5,
+            localPlayer.position.z
+        );
+        console.log("Initial camera set for local player", localPlayerId);
+        console.log("  -> Cam Pos:", camera.position.x.toFixed(2), camera.position.y.toFixed(2), camera.position.z.toFixed(2));
+        console.log("  -> LookAt:", localPlayer.position.x.toFixed(2), (localPlayer.position.y + 3.5).toFixed(2), localPlayer.position.z.toFixed(2));
+    } else {
+        // Default camera position for spectators
+        camera.position.set(0, 10, 15);
+        camera.lookAt(0, 0, 0);
+        console.log("Setting default camera position (spectator/no local player).");
+    }
 
     // Initialize effects
     initializeSparkSystem();
