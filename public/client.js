@@ -232,7 +232,9 @@ function getCharacterTexture(characterId, angle = 'b') {
         const textureLoader = new THREE.TextureLoader();
         textureLoader.crossOrigin = 'anonymous';
 
-        const texturePath = `${ASSET_BASE_URL}${character.baseSpritePath}/${characterId}${angle}.png`;
+        // Construct the texture path without double slashes
+        const basePath = `${ASSET_BASE_URL}${character.baseSpritePath}`.replace(/\/+/g, '/');
+        const texturePath = `${basePath}/${characterId}${angle}.png`;
         console.log('Loading texture:', texturePath);
         
         characterTextures[cacheKey] = textureLoader.load(
@@ -245,6 +247,7 @@ function getCharacterTexture(characterId, angle = 'b') {
             undefined,
             (err) => {
                 console.error(`Failed to load texture: ${texturePath}`, err);
+                console.error('Full error details:', err);
                 characterTextures[cacheKey] = null;
                 // If front texture fails to load, try loading back texture as fallback
                 if (angle === 'f') {
@@ -303,7 +306,9 @@ function setupCharacterSelection() {
 
         const preview = document.createElement('img');
         preview.classList.add('character-preview');
-        const previewTexturePath = `${ASSET_BASE_URL}${char.baseSpritePath}/${id}f.png`;
+        // Use the same path handling logic as getCharacterTexture
+        const basePath = `${ASSET_BASE_URL}${char.baseSpritePath}`.replace(/\/+/g, '/');
+        const previewTexturePath = `${basePath}/${id}f.png`;
         console.log(`[Loop ${index}] Preview image path:`, previewTexturePath);
         preview.src = previewTexturePath;
         preview.alt = char.name;
@@ -356,11 +361,13 @@ function startCharacterRotation(imgElement, characterData) {
 
     let currentAngleIndex = 0;
     const characterId = characterData.baseSpritePath.split('/').pop();
-    imgElement.src = `${ASSET_BASE_URL}${characterData.baseSpritePath}/${characterId}${characterSpriteAngles[currentAngleIndex]}.png`;
+    // Use the same path handling logic
+    const basePath = `${ASSET_BASE_URL}${characterData.baseSpritePath}`.replace(/\/+/g, '/');
+    imgElement.src = `${basePath}/${characterId}${characterSpriteAngles[currentAngleIndex]}.png`;
 
     rotationIntervals[intervalKey] = setInterval(() => {
         currentAngleIndex = (currentAngleIndex + 1) % characterSpriteAngles.length;
-        const nextSrc = `${ASSET_BASE_URL}${characterData.baseSpritePath}/${characterId}${characterSpriteAngles[currentAngleIndex]}.png`;
+        const nextSrc = `${basePath}/${characterId}${characterSpriteAngles[currentAngleIndex]}.png`;
         imgElement.src = nextSrc;
         imgElement.onerror = () => {
             console.warn(`Sprite not found during rotation: ${imgElement.src}`);
@@ -445,9 +452,10 @@ socket.on('disconnect', () => {
 socket.on('updateGameState', (state, serverPlayers, options) => {
     console.log('Received game state update:', state, options);
     currentGameState = state;
-    players = serverPlayers;
+    players = serverPlayers || {}; // Ensure players is initialized even if empty
 
     if (state === 'racing') {
+        console.log('Racing state detected. Players:', players);
         waitingScreenOverlay.style.display = 'none'; // Hide waiting screen
         if (!raceInitialized) {
             console.log('Initializing race with options:', options);
@@ -455,17 +463,18 @@ socket.on('updateGameState', (state, serverPlayers, options) => {
                 console.log('Creating course with data:', options.courseData);
                 createCourse(options.courseData);
                 initializeRaceScene(players, options);
-    raceInitialized = true;
-    } else {
+                raceInitialized = true;
+            } else {
                 console.error('No course data received from server');
             }
         }
         // Update all player positions
         Object.entries(players).forEach(([playerId, playerData]) => {
+            if (!playerObjects[playerId] && playerData.characterId) {
+                console.log('Adding missing player object:', playerId, playerData);
+                addPlayerObject(playerId, playerData);
+            }
             if (playerData.position && playerData.rotation) {
-                if (!playerObjects[playerId]) {
-                    addPlayerObject(playerId, playerData);
-                }
                 updatePlayerPosition(playerId, playerData.position, playerData.rotation);
             }
         });
@@ -479,15 +488,18 @@ socket.on('updateGameState', (state, serverPlayers, options) => {
 socket.on('playerJoined', (playerId, playerData) => {
     console.log('Player joined:', playerId, playerData);
     players[playerId] = playerData; // Add to local cache
-    // Add visual object only if the race scene is active (racing or waiting/spectating)
-    if (raceInitialized) {
-         addPlayerObject(playerId, playerData);
+    // Add visual object only if the race scene is active
+    if (currentGameState === 'racing' && playerData.characterId) {
+        console.log('Adding player object for new player:', playerId, playerData);
+        addPlayerObject(playerId, playerData);
     }
 });
 
 socket.on('playerLeft', (playerId) => {
     console.log('Player left:', playerId);
-    removePlayerObject(playerId); // Remove visual object if it exists
+    if (playerObjects[playerId]) {
+        removePlayerObject(playerId); // Remove visual object if it exists
+    }
     delete players[playerId]; // Remove from local cache
 });
 
