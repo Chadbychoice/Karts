@@ -391,6 +391,7 @@ function confirmCharacterSelection() {
     console.log(`Character selected: ${selectedId} (${characters[selectedId].name})`);
     socket.emit('playerSelectCharacter', selectedId);
     characterSelectionOverlay.style.display = 'none'; // Hide selection screen
+    waitingScreenOverlay.style.display = 'block'; // Show waiting screen
     stopCharacterRotation(null, null); // Stop all rotation animations when confirmed
     document.removeEventListener('keydown', handleCharacterSelectionInput);
 }
@@ -414,13 +415,17 @@ socket.on('disconnect', () => {
 });
 
 socket.on('updateGameState', (state, serverPlayers, options) => {
-    console.log('Received game state update:', state);
+    console.log('Received game state update:', state, options);
     currentGameState = state;
     players = serverPlayers;
 
     if (state === 'racing') {
+        waitingScreenOverlay.style.display = 'none'; // Hide waiting screen
         if (!raceInitialized) {
             console.log('Initializing race with options:', options);
+            if (options && options.courseData) {
+                createCourse(options.courseData);
+            }
             initializeRaceScene(players, options);
             raceInitialized = true;
         }
@@ -435,6 +440,8 @@ socket.on('updateGameState', (state, serverPlayers, options) => {
         });
     } else if (state === 'character-selection') {
         showCharacterSelection();
+        waitingScreenOverlay.style.display = 'none';
+        characterSelectionOverlay.style.display = 'block';
     }
 });
 

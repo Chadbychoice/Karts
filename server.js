@@ -165,8 +165,8 @@ io.on('connection', (socket) => {
         connected: true,
         timestamp: Date.now(),
         characterId: null,
-        position: courses[1].startPositions[0],
-        rotation: courses[1].startRotation,
+        position: courses[gameState.currentCourse].startPositions[0],
+        rotation: courses[gameState.currentCourse].startRotation,
         velocity: 0,
         lap: 1,
         nextCheckpoint: 0,
@@ -198,14 +198,14 @@ io.on('connection', (socket) => {
                 // Assign start positions to players
                 const readyPlayers = Array.from(gameState.readyPlayers);
                 readyPlayers.forEach((playerId, index) => {
-                    const startPos = courses[gameState.currentCourse].startPositions[index] || courses[gameState.currentCourse].startPositions[0];
-                    gameState.players[playerId].position = { ...startPos };
-                    gameState.players[playerId].rotation = { ...courses[gameState.currentCourse].startRotation };
-                    gameState.players[playerId].lap = 1;
-                    gameState.players[playerId].nextCheckpoint = 0;
-                    gameState.players[playerId].finishedRace = false;
+                    if (gameState.players[playerId]) {
+                        const startPos = courses[gameState.currentCourse].startPositions[index % courses[gameState.currentCourse].startPositions.length];
+                        gameState.players[playerId].position = { ...startPos };
+                        gameState.players[playerId].rotation = { ...courses[gameState.currentCourse].startRotation };
+                    }
                 });
 
+                // Broadcast the updated game state to all players
                 io.emit('updateGameState', gameState.state, gameState.players, {
                     courseId: gameState.currentCourse,
                     courseData: courses[gameState.currentCourse]
