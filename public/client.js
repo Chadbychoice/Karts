@@ -19,7 +19,7 @@ const WEBSOCKET_URL = window.location.hostname === 'localhost'
 // Base URL for assets
 const ASSET_BASE_URL = window.location.hostname === 'localhost' 
     ? '' 
-    : window.location.origin;
+    : 'https://karts-websocket.onrender.com';
 
 console.log('Using base URL for assets:', ASSET_BASE_URL);
 
@@ -112,14 +112,14 @@ const selectedCharacterNameElement = document.getElementById('selected-character
 
 // --- Character Data ---
 const characters = {
-    1: { name: "Turbo Hank", baseSpritePath: "/Sprites/characters" },
-    2: { name: "Stella Vroom", baseSpritePath: "/Sprites/characters" },
-    3: { name: "Bongo Blitz", baseSpritePath: "/Sprites/characters" },
-    4: { name: "Krash Krawl", baseSpritePath: "/Sprites/characters" },
-    5: { name: "Kara Krawl", baseSpritePath: "/Sprites/characters" },
-    6: { name: "Freddy", baseSpritePath: "/Sprites/characters" },
-    7: { name: "Laurette", baseSpritePath: "/Sprites/characters" },
-    8: { name: "Fierry Farez", baseSpritePath: "/Sprites/characters" }
+    1: { name: "Turbo Hank", baseSpritePath: "Sprites/characters" },
+    2: { name: "Stella Vroom", baseSpritePath: "Sprites/characters" },
+    3: { name: "Bongo Blitz", baseSpritePath: "Sprites/characters" },
+    4: { name: "Krash Krawl", baseSpritePath: "Sprites/characters" },
+    5: { name: "Kara Krawl", baseSpritePath: "Sprites/characters" },
+    6: { name: "Freddy", baseSpritePath: "Sprites/characters" },
+    7: { name: "Laurette", baseSpritePath: "Sprites/characters" },
+    8: { name: "Fierry Farez", baseSpritePath: "Sprites/characters" }
 };
 
 const characterSpriteAngles = ['f', 'fr', 'r', 'br', 'b', 'bl', 'l', 'fl'];
@@ -233,8 +233,7 @@ function getCharacterTexture(characterId, angle = 'b') {
         textureLoader.crossOrigin = 'anonymous';
 
         // Construct the texture path without double slashes
-        const basePath = `${ASSET_BASE_URL}${character.baseSpritePath}`.replace(/\/+/g, '/');
-        const texturePath = `${basePath}/${characterId}${angle}.png`;
+        const texturePath = `${ASSET_BASE_URL}/${character.baseSpritePath}/${characterId}${angle}.png`;
         console.log('Loading texture:', texturePath);
         
         characterTextures[cacheKey] = textureLoader.load(
@@ -361,13 +360,12 @@ function startCharacterRotation(imgElement, characterData) {
 
     let currentAngleIndex = 0;
     const characterId = characterData.baseSpritePath.split('/').pop();
-    // Use the same path handling logic
-    const basePath = `${ASSET_BASE_URL}${characterData.baseSpritePath}`.replace(/\/+/g, '/');
-    imgElement.src = `${basePath}/${characterId}${characterSpriteAngles[currentAngleIndex]}.png`;
+    const texturePath = `${ASSET_BASE_URL}/${characterData.baseSpritePath}/${characterId}${characterSpriteAngles[currentAngleIndex]}.png`;
+    imgElement.src = texturePath;
 
     rotationIntervals[intervalKey] = setInterval(() => {
         currentAngleIndex = (currentAngleIndex + 1) % characterSpriteAngles.length;
-        const nextSrc = `${basePath}/${characterId}${characterSpriteAngles[currentAngleIndex]}.png`;
+        const nextSrc = `${ASSET_BASE_URL}/${characterData.baseSpritePath}/${characterId}${characterSpriteAngles[currentAngleIndex]}.png`;
         imgElement.src = nextSrc;
         imgElement.onerror = () => {
             console.warn(`Sprite not found during rotation: ${imgElement.src}`);
