@@ -1685,64 +1685,117 @@ const sparkTexturesLoaded = []; // Cache loaded textures
 const SPARK_LIFESPAN = 300; // ms
 
 // --- Collision Handling ---
-socket.on('collisionDetected', ({ playerA_id, playerB_id, collisionPoint }) => {
-    console.log('Collision detected between', playerA_id, 'and', playerB_id);
+socket.on('collisionDetected', (data) => {
+    const { playerA_id, playerB_id, collisionPoint, intensity, sparkRange } = data;
     
-    // Convert collisionPoint to THREE.Vector3
-    const collisionVec = new THREE.Vector3(
-        collisionPoint.x,
-        collisionPoint.y + 0.25, // Lower spark height
-        collisionPoint.z
+    // Create spark effect at collision point
+    createSparkEffect(
+        new THREE.Vector3(collisionPoint.x, collisionPoint.y, collisionPoint.z),
+        intensity,
+        sparkRange
     );
     
-    // Trigger spark effect
-    triggerSparks(collisionVec);
-    
-    // Handle collision physics if local player is involved
+    // Add screen shake based on collision intensity
     if (playerA_id === localPlayerId || playerB_id === localPlayerId) {
-        const otherPlayerId = playerA_id === localPlayerId ? playerB_id : playerA_id;
-        handleCollisionPhysics(localPlayerId, otherPlayerId);
+        const shakeAmount = intensity * 0.3; // Scale shake with collision intensity
+        shakeCamera(shakeAmount);
     }
+    
+    // Play collision sound if available
+    // TODO: Add collision sound effect
 });
 
-function handleCollisionPhysics(playerId1, playerId2) {
-    if (!players[playerId1] || !players[playerId2]) return;
+function createSparkEffect(position, intensity, range) {
+    const particleCount = Math.floor(20 * intensity); // Scale particles with intensity
+    const sparkGeometry = new THREE.BufferGeometry();
+    const vertices = [];
     
-    const player1 = players[playerId1];
-    const player2 = players[playerId2];
-    
-    // Calculate collision normal
-    const dx = player1.position.x - player2.position.x;
-    const dz = player1.position.z - player2.position.z;
-    const distance = Math.sqrt(dx * dx + dz * dz);
-    
-    if (distance < 0.001) return; // Prevent division by zero
-    
-    // Normalize the collision vector
-    const nx = dx / distance;
-    const nz = dz / distance;
-    
-    // Stronger collision response
-    const bounceForce = 2.0; // Increased bounce force
-    const velocityExchange = 0.8; // Velocity exchange factor
-    
-    // Only modify local player's velocity and position
-    if (playerId1 === localPlayerId) {
-        // Transfer some of the other player's velocity
-        const otherVelocity = player2.velocity || 0;
-        player1.velocity = player1.velocity * (1 - velocityExchange) + otherVelocity * velocityExchange;
+    for (let i = 0; i < particleCount; i++) {
+        // Calculate random position within a sphere
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const r = Math.random() * range; // Use provided range
         
-        // Push away from other player more strongly
-        player1.position.x += nx * bounceForce;
-        player1.position.z += nz * bounceForce;
+        const x = r * Math.sin(phi) * Math.cos(theta);
+        const y = r * Math.sin(phi) * Math.sin(theta) + 1; // Add 1 to y to lift sparks up slightly
+        const z = r * Math.cos(phi);
         
-        // Emit the updated position to the server
-        socket.emit('updatePosition', {
-            x: player1.position.x,
-            y: player1.position.y,
-            z: player1.position.z
-        }, player1.rotation);
+        vertices.push(x, y, z);
     }
+    
+    sparkGeometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    
+    // Create spark material if not exists
+    if (!particlesMaterial) {
+        const sparkTexture = textures['/Sprites/sparks/spark1.png'];
+        particlesMaterial = new THREE.PointsMaterial({
+            size: 0.5,
+            map: sparkTexture,
+            transparent: true,
+            opacity: 1,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            vertexColors: false
+        });
+    }
+    
+    const particles = new THREE.Points(sparkGeometry, particlesMaterial);
+    particles.position.copy(position);
+    scene.add(particles);
+    
+    // Animate sparks
+    const startTime = Date.now();
+    const duration = 500; // Duration in milliseconds
+    
+    function animateSparks() {
+        const elapsed = Date.now() - startTime;
+        const progress = elapsed / duration;
+        
+        if (progress >= 1) {
+            scene.remove(particles);
+            particles.geometry.dispose();
+            return;
+        }
+        
+        // Fade out particles
+        particlesMaterial.opacity = 1 - progress;
+        
+        // Move particles upward and outward
+        const positions = particles.geometry.attributes.position.array;
+        for (let i = 0; i < positions.length; i += 3) {
+            positions[i + 1] += 0.05; // Upward movement
+            // Add slight outward movement
+            positions[i] *= 1.01;
+            positions[i + 2] *= 1.01;
+        }
+        particles.geometry.attributes.position.needsUpdate = true;
+        
+        requestAnimationFrame(animateSparks);
+    }
+    
+    animateSparks();
+}
+
+function shakeCamera(intensity) {
+    const duration = 200; // Duration in milliseconds
+    const startTime = Date.now();
+    
+    function updateShake() {
+        const elapsed = Date.now() - startTime;
+        const progress = elapsed / duration;
+        
+        if (progress >= 1) {
+            camera.position.y = cameraBaseY; // Reset to base position
+            return;
+        }
+        
+        const shakeOffset = Math.sin(progress * 20) * intensity * (1 - progress);
+        camera.position.y = cameraBaseY + shakeOffset;
+        
+        requestAnimationFrame(updateShake);
+    }
+    
+    updateShake();
 }
 
 // --- Spark Functions ---

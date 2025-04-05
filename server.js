@@ -113,13 +113,13 @@ function checkCollisions(gameState) {
             const distance = Math.sqrt(dx * dx + dz * dz);
             
             // Collision radius (sum of both kart radii)
-            const collisionThreshold = 2.0; // Increased collision radius
+            const collisionThreshold = 3.0; // Increased for better detection
             
             if (distance < collisionThreshold) {
                 // Calculate collision point (midpoint between players)
                 const collisionPoint = {
                     x: (playerA.position.x + playerB.position.x) / 2,
-                    y: (playerA.position.y + playerB.position.y) / 2,
+                    y: Math.max(playerA.position.y, playerB.position.y) + 0.5, // Slightly above ground
                     z: (playerA.position.z + playerB.position.z) / 2
                 };
                 
@@ -130,27 +130,38 @@ function checkCollisions(gameState) {
                     const nx = dx / distance;
                     const nz = dz / distance;
                     
-                    // Push players apart more strongly
-                    const pushForce = overlap * 1.0; // Increased push force
+                    // Strong immediate separation to prevent passing through
+                    const separationForce = overlap * 2.0;
                     
-                    // Update positions to prevent overlap
-                    playerA.position.x += nx * pushForce;
-                    playerA.position.z += nz * pushForce;
-                    playerB.position.x -= nx * pushForce;
-                    playerB.position.z -= nz * pushForce;
+                    // Update positions with strong separation
+                    playerA.position.x += nx * separationForce;
+                    playerA.position.z += nz * separationForce;
+                    playerB.position.x -= nx * separationForce;
+                    playerB.position.z -= nz * separationForce;
                     
-                    // Exchange velocities
+                    // Calculate relative velocity
+                    const relativeVelocity = Math.abs(playerA.velocity - playerB.velocity);
+                    
+                    // Exchange velocities with dampening
+                    const restitution = 0.5; // Bounce factor
                     const tempVel = playerA.velocity;
-                    playerA.velocity = playerB.velocity * 0.8; // 80% velocity exchange
-                    playerB.velocity = tempVel * 0.8;
+                    playerA.velocity = playerB.velocity * restitution;
+                    playerB.velocity = tempVel * restitution;
+                    
+                    // Add some sideways velocity for more dynamic collisions
+                    const sideForce = relativeVelocity * 0.3;
+                    playerA.sideVelocity = (Math.random() - 0.5) * sideForce;
+                    playerB.sideVelocity = (Math.random() - 0.5) * sideForce;
+                    
+                    // Emit collision event with intensity based on relative velocity
+                    io.emit('collisionDetected', {
+                        playerA_id: playerA.id,
+                        playerB_id: playerB.id,
+                        collisionPoint: collisionPoint,
+                        intensity: Math.min(relativeVelocity / 10, 1), // Normalized intensity
+                        sparkRange: Math.min(relativeVelocity * 0.5, 3) // Limited spark range
+                    });
                 }
-                
-                // Emit collision event to all clients
-                io.emit('collisionDetected', {
-                    playerA_id: playerA.id,
-                    playerB_id: playerB.id,
-                    collisionPoint: collisionPoint
-                });
             }
         }
     }
