@@ -424,10 +424,13 @@ socket.on('updateGameState', (state, serverPlayers, options) => {
         if (!raceInitialized) {
             console.log('Initializing race with options:', options);
             if (options && options.courseData) {
+                console.log('Creating course with data:', options.courseData);
                 createCourse(options.courseData);
+                initializeRaceScene(players, options);
+                raceInitialized = true;
+            } else {
+                console.error('No course data received from server');
             }
-            initializeRaceScene(players, options);
-            raceInitialized = true;
         }
         // Update all player positions
         Object.entries(players).forEach(([playerId, playerData]) => {
@@ -537,15 +540,15 @@ function addPlayerObject(playerId, playerData) {
         sprite.userData = { characterId: characterId, currentAngleCode: initialAngleCode };
         playerObjects[playerId] = sprite;
 
-        // Set initial sprite position
+        // Set initial sprite position with reduced height
         if (playerData.position) {
             sprite.position.set(
                 playerData.position.x,
-                playerData.position.y + playerSpriteScale / 2,
+                playerData.position.y + 0.5, // Reduced from playerSpriteScale / 2
                 playerData.position.z
             );
         } else {
-            sprite.position.set(0, playerSpriteScale / 2, 0);
+            sprite.position.set(0, 0.5, 0); // Reduced height
             console.warn(`Player ${playerId} created without initial position.`);
         }
         scene.add(sprite);
@@ -617,9 +620,9 @@ function updatePlayerObjectTransform(playerId, position, rotation) {
     if (playerObject && position) {
         // For local player, update position directly.
         // For remote players, this is handled by lerping in the animate loop.
-         if (playerId === localPlayerId) {
-             playerObject.position.set(position.x, position.y + playerSpriteScale / 2, position.z);
-         }
+        if (playerId === localPlayerId) {
+            playerObject.position.set(position.x, position.y + 0.5, position.z); // Reduced height
+        }
         // Rotation data is stored in `players[playerId].rotation`
         // The visual update based on rotation happens in `updatePlayerSpriteAngle`
     }
@@ -1159,61 +1162,92 @@ const courseLayouts = {
 let currentCourseObjects = []; // Keep track of course objects for cleanup
 
 function createCourse(courseData) {
-    if (!courseData) {
-        console.error("No course data provided to createCourse!");
-        // Optionally load a default course
-        courseData = courseLayouts[1]; // Fallback to course 1
-    }
-    console.log(`Creating course: ${courseData.name}`);
+    console.log('Creating course with data:', courseData);
+    
+    // Clear existing course elements
+    scene.children.forEach(child => {
+        if (child.userData && child.userData.isCourseElement) {
+            scene.remove(child);
+            if (child.material) child.material.dispose();
+            if (child.geometry) child.geometry.dispose();
+        }
+    });
 
-    // --- Create Ground Plane --- 
-    const roadTexture = textureLoader.load(courseData.roadTexturePath || 'textures/road.png');
-    roadTexture.wrapS = THREE.RepeatWrapping;
-    roadTexture.wrapT = THREE.RepeatWrapping;
-    const repeatX = courseData.textureRepeat?.x || 10;
-    const repeatY = courseData.textureRepeat?.y || 10;
-    roadTexture.repeat.set(repeatX, repeatY);
+    // Create ground plane
+    const planeGeometry = new THREE.PlaneGeometry(
+        courseData.planeSize.width || 100,
+        courseData.planeSize.height || 100
+    );
+    planeGeometry.rotateX(-Math.PI / 2); // Rotate to be horizontal
 
-    const planeSize = courseData.planeSize || { width: 100, height: 100 };
-    const planeGeometry = new THREE.PlaneGeometry(planeSize.width, planeSize.height);
-    const planeMaterial = new THREE.MeshStandardMaterial({ map: roadTexture, side: THREE.DoubleSide }); // Restore Standard
-    const plane = new THREE.Mesh(planeGeometry, planeMaterial);
-    plane.rotation.x = -Math.PI / 2; 
-    plane.position.y = 0; 
-    plane.receiveShadow = true; 
-    scene.add(plane);
-    currentCourseObjects.push(plane);
-    console.log(`[createCourse] Added ground plane to scene.`);
-
-    // --- Create Walls --- 
-    const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x888888 }); // Restore Standard
-    if (courseData.walls && Array.isArray(courseData.walls)) {
-        courseData.walls.forEach(wallData => {
-            if (wallData.type === 'box') { // Extend this for other wall types later
-                const size = wallData.size || { x: 1, y: 1, z: 1 };
-                const position = wallData.position || { x: 0, y: 0.5, z: 0 };
-                const geometry = new THREE.BoxGeometry(size.x, size.y, size.z);
-                const wallMesh = new THREE.Mesh(geometry, wallMaterial);
-                wallMesh.position.set(position.x, position.y, position.z);
-                // Apply rotation if specified in wallData (e.g., wallData.rotation = { x: 0, y: Math.PI/4, z: 0 })
-                if(wallData.rotation) {
-                     wallMesh.rotation.set(
-                         wallData.rotation.x || 0,
-                         wallData.rotation.y || 0,
-                         wallData.rotation.z || 0
-                     );
-                }
-                wallMesh.castShadow = true;
-                wallMesh.receiveShadow = true;
-                scene.add(wallMesh);
-                console.log(`[createCourse] Added wall ${wallData.type} to scene at ${position.x}, ${position.y}, ${position.z}`);
-                currentCourseObjects.push(wallMesh);
-            } 
-            // Add else if for cylinders, custom shapes etc.
+    // Add terrain elements
+    courseData.terrain.forEach(terrain => {
+        const geometry = new THREE.PlaneGeometry(terrain.width, terrain.length);
+        geometry.rotateX(-Math.PI / 2);
+        
+        const material = new THREE.MeshBasicMaterial({
+            map: textures[`/textures/${terrain.type}.png`],
+            transparent: true
         });
-    }
+        
+        if (material.map) {
+            material.map.repeat.set(
+                terrain.width / 10,
+                terrain.length / 10
+            );
+            material.map.wrapS = material.map.wrapT = THREE.RepeatWrapping;
+        }
 
-    // Add more course elements based on courseData (e.g., item boxes, boost pads)
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.set(terrain.x, terrain.y + 0.01, terrain.z); // Slightly above ground
+        mesh.userData = { isCourseElement: true, type: terrain.type };
+        scene.add(mesh);
+    });
+
+    // Add obstacles
+    courseData.obstacles.forEach(obstacle => {
+        const geometry = new THREE.PlaneGeometry(obstacle.width, obstacle.length);
+        geometry.rotateX(-Math.PI / 2);
+        
+        const material = new THREE.MeshBasicMaterial({
+            map: textures[`/textures/${obstacle.type}.png`],
+            transparent: true
+        });
+        
+        if (material.map) {
+            material.map.repeat.set(
+                obstacle.width / 10,
+                obstacle.length / 10
+            );
+            material.map.wrapS = material.map.wrapT = THREE.RepeatWrapping;
+        }
+
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.set(obstacle.x, obstacle.y + 0.02, obstacle.z); // Slightly above terrain
+        mesh.userData = { isCourseElement: true, type: obstacle.type };
+        scene.add(mesh);
+    });
+
+    // Add decorations (start/finish lines, etc.)
+    courseData.decorations.forEach(decoration => {
+        const geometry = new THREE.PlaneGeometry(10, 2); // Standard size for lines
+        geometry.rotateX(-Math.PI / 2);
+        
+        const material = new THREE.MeshBasicMaterial({
+            map: textures[`/textures/${decoration.type}.png`],
+            transparent: true
+        });
+
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.set(decoration.x, decoration.y + 0.03, decoration.z);
+        if (decoration.rotation) {
+            mesh.rotation.y = decoration.rotation.y;
+        }
+        mesh.userData = { isCourseElement: true, type: decoration.type };
+        scene.add(mesh);
+    });
+
+    console.log('Course creation completed');
 }
 
 // --- Race Initialization ---
@@ -1657,7 +1691,7 @@ socket.on('collisionDetected', ({ playerA_id, playerB_id, collisionPoint }) => {
     // Convert collisionPoint to THREE.Vector3
     const collisionVec = new THREE.Vector3(
         collisionPoint.x,
-        collisionPoint.y + 0.5, // Lower spark height
+        collisionPoint.y + 0.25, // Lower spark height
         collisionPoint.z
     );
     
@@ -1688,15 +1722,26 @@ function handleCollisionPhysics(playerId1, playerId2) {
     const nx = dx / distance;
     const nz = dz / distance;
     
-    // Simple elastic collision response
-    const bounceForce = 0.5; // Reduced bounce force
+    // Stronger collision response
+    const bounceForce = 2.0; // Increased bounce force
+    const velocityExchange = 0.8; // Velocity exchange factor
     
-    // Only modify local player's velocity
+    // Only modify local player's velocity and position
     if (playerId1 === localPlayerId) {
-        player1.velocity *= -0.5; // Reduce and reverse velocity
-        // Push away from other player
+        // Transfer some of the other player's velocity
+        const otherVelocity = player2.velocity || 0;
+        player1.velocity = player1.velocity * (1 - velocityExchange) + otherVelocity * velocityExchange;
+        
+        // Push away from other player more strongly
         player1.position.x += nx * bounceForce;
         player1.position.z += nz * bounceForce;
+        
+        // Emit the updated position to the server
+        socket.emit('updatePosition', {
+            x: player1.position.x,
+            y: player1.position.y,
+            z: player1.position.z
+        }, player1.rotation);
     }
 }
 
@@ -1752,27 +1797,28 @@ function triggerSparks(origin) {
 
     sparkSystem.visible = true;
     let sparksCreated = 0;
-    const numSparksToCreate = 8; // Reduced number of sparks
+    const numSparksToCreate = 12; // Increased number of sparks
 
     for (let i = 0; i < MAX_SPARKS && sparksCreated < numSparksToCreate; i++) {
         if (sparkParticles[i].life <= 0) {
-            sparkParticles[i].life = SPARK_LIFESPAN;
+            sparkParticles[i].life = SPARK_LIFESPAN * 0.5; // Reduced lifespan
             sparkParticles[i].textureIndex = Math.floor(Math.random() * sparkTexturesLoaded.length);
             
             // Set position at collision point
             sparkSystem.geometry.attributes.position.setXYZ(
                 i,
-                origin.x,
+                origin.x + (Math.random() - 0.5) * 0.5, // Add some random spread
                 origin.y,
-                origin.z
+                origin.z + (Math.random() - 0.5) * 0.5
             );
             
-            // Reduced velocity and spread
+            // More dynamic velocity
             const angle = Math.random() * Math.PI * 2;
-            const speed = 0.05 + Math.random() * 0.1; // Reduced speed
+            const speed = 0.1 + Math.random() * 0.2; // Adjusted speed range
+            const verticalSpeed = 0.1 + Math.random() * 0.15; // Controlled vertical speed
             sparkParticles[i].velocity.set(
                 Math.cos(angle) * speed,
-                0.05 + Math.random() * 0.1, // Reduced vertical velocity
+                verticalSpeed,
                 Math.sin(angle) * speed
             );
 
@@ -1805,13 +1851,17 @@ function updateSparks() {
             if (sparkParticles[i].life <= 0) {
                 positions[i * 3 + 1] = -10000; // Move offscreen
             } else {
-                // Reduced movement speed and add gravity
-                positions[i * 3 + 0] += sparkParticles[i].velocity.x * delta * 0.01;
-                positions[i * 3 + 1] += (sparkParticles[i].velocity.y * delta * 0.01) - (0.0001 * delta); // Add gravity
-                positions[i * 3 + 2] += sparkParticles[i].velocity.z * delta * 0.01;
+                // Update positions with gravity and drag
+                const dragFactor = 0.98; // Air resistance
+                sparkParticles[i].velocity.y -= 0.001 * delta; // Gravity
+                sparkParticles[i].velocity.multiplyScalar(dragFactor); // Apply drag
+
+                positions[i * 3 + 0] += sparkParticles[i].velocity.x * delta * 0.02;
+                positions[i * 3 + 1] += sparkParticles[i].velocity.y * delta * 0.02;
+                positions[i * 3 + 2] += sparkParticles[i].velocity.z * delta * 0.02;
                 
                 // Make sparks disappear if they hit the ground
-                if (positions[i * 3 + 1] < 0.01) {
+                if (positions[i * 3 + 1] < 0.05) {
                     sparkParticles[i].life = 0;
                     positions[i * 3 + 1] = -10000;
                 } else {
