@@ -97,7 +97,7 @@ app.get('/api/courses/:id', (req, res) => {
 
 // Game state
 const gameState = {
-    state: 'character-selection',
+    state: 'racing',
     players: {},
     readyPlayers: new Set(),
     currentCourse: 'test'
@@ -198,14 +198,18 @@ function checkCollisions(gameState) {
 io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
 
-    // Add player to game state
+    // Add player to game state with ready status
+    const startPos = courses[gameState.currentCourse].startPositions[
+        Object.keys(gameState.players).length % courses[gameState.currentCourse].startPositions.length
+    ];
+    
     gameState.players[socket.id] = {
         id: socket.id,
         connected: true,
         timestamp: Date.now(),
         characterId: null,
-        position: courses[gameState.currentCourse].startPositions[0],
-        rotation: courses[gameState.currentCourse].startRotation,
+        position: { ...startPos },
+        rotation: { ...courses[gameState.currentCourse].startRotation },
         velocity: 0,
         lap: 1,
         nextCheckpoint: 0,
@@ -225,31 +229,17 @@ io.on('connection', (socket) => {
             gameState.players[socket.id].characterId = characterId;
             gameState.readyPlayers.add(socket.id);
             
-            // Check if all connected players have selected characters
-            const allPlayersReady = Object.keys(gameState.players).every(playerId => 
-                gameState.players[playerId].characterId !== null
-            );
+            // Immediately start the player in racing state
+            gameState.players[socket.id].position = { ...startPos };
+            gameState.players[socket.id].rotation = { ...courses[gameState.currentCourse].startRotation };
 
-            if (allPlayersReady || gameState.readyPlayers.size >= 1) {
-                console.log('All players ready, starting race!');
-                gameState.state = 'racing';
-                
-                // Assign start positions to players
-                const readyPlayers = Array.from(gameState.readyPlayers);
-                readyPlayers.forEach((playerId, index) => {
-                    if (gameState.players[playerId]) {
-                        const startPos = courses[gameState.currentCourse].startPositions[index % courses[gameState.currentCourse].startPositions.length];
-                        gameState.players[playerId].position = { ...startPos };
-                        gameState.players[playerId].rotation = { ...courses[gameState.currentCourse].startRotation };
-                    }
-                });
-
-                // Broadcast the updated game state to all players
-                io.emit('updateGameState', gameState.state, gameState.players, {
-                    courseId: gameState.currentCourse,
-                    courseData: courses[gameState.currentCourse]
-                });
-            }
+            // Broadcast only this player's ready state
+            io.emit('updateGameState', gameState.state, {
+                [socket.id]: gameState.players[socket.id]
+            }, {
+                courseId: gameState.currentCourse,
+                courseData: courses[gameState.currentCourse]
+            });
         }
     });
 
@@ -316,12 +306,9 @@ io.on('connection', (socket) => {
         gameState.readyPlayers.delete(socket.id);
         delete gameState.players[socket.id];
         io.emit('playerLeft', socket.id);
-
-        // If no players left, reset game state
-        if (Object.keys(gameState.players).length === 0) {
-            gameState.state = 'character-selection';
-            gameState.readyPlayers.clear();
-        }
+        
+        // Keep game state in racing mode regardless of player count
+        gameState.state = 'racing';
     });
 });
 
