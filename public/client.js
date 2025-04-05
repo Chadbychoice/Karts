@@ -112,6 +112,7 @@ const characters = {
     5: { name: "Kara Krawl", baseSpritePath: "/Sprites/characters/5" },
     6: { name: "Freddy", baseSpritePath: "/Sprites/characters/6" },
     7: { name: "Laurette", baseSpritePath: "/Sprites/characters/7" },
+    8: { name: "Fierry Farez", baseSpritePath: "/Sprites/characters/8" },
 };
 
 const characterSpriteAngles = ['f', 'fr', 'r', 'br', 'b', 'bl', 'l', 'fl'];
