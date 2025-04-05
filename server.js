@@ -16,9 +16,9 @@ const courses = {
     test: {
         id: 'test',
         name: "Test Track",
-        planeSize: { width: 100, height: 200 },
+        planeSize: { width: 100, height: 100 },
         roadTexturePath: '/textures/road.png',
-        textureRepeat: { x: 10, y: 20 },
+        textureRepeat: { x: 10, y: 10 },
         checkpoints: [
             { x: -40, y: 0, z: 0 },
             { x: 40, y: 0, z: 0 },
@@ -26,10 +26,10 @@ const courses = {
             { x: -40, y: 0, z: 40 }
         ],
         startPositions: [
-            { x: 0, y: 1, z: 0 },
-            { x: 2, y: 1, z: 0 },
-            { x: -2, y: 1, z: 0 },
-            { x: 4, y: 1, z: 0 }
+            { x: 0, y: 0, z: 0 },
+            { x: 2, y: 0, z: 0 },
+            { x: -2, y: 0, z: 0 },
+            { x: 4, y: 0, z: 0 }
         ],
         startRotation: { y: 0 },
         terrain: [
@@ -113,7 +113,7 @@ function checkCollisions(gameState) {
             const distance = Math.sqrt(dx * dx + dz * dz);
             
             // Collision radius (sum of both kart radii)
-            const collisionThreshold = 1.0; // Reduced from previous value
+            const collisionThreshold = 2.0; // Increased collision radius
             
             if (distance < collisionThreshold) {
                 // Calculate collision point (midpoint between players)
@@ -123,22 +123,15 @@ function checkCollisions(gameState) {
                     z: (playerA.position.z + playerB.position.z) / 2
                 };
                 
-                // Emit collision event to all clients
-                io.emit('collisionDetected', {
-                    playerA_id: playerA.id,
-                    playerB_id: playerB.id,
-                    collisionPoint: collisionPoint
-                });
-                
-                // Update velocities (basic collision response)
+                // Calculate collision response
                 const overlap = collisionThreshold - distance;
                 if (overlap > 0) {
                     // Normalize collision vector
                     const nx = dx / distance;
                     const nz = dz / distance;
                     
-                    // Push players apart
-                    const pushForce = overlap * 0.5; // Half the overlap for each player
+                    // Push players apart more strongly
+                    const pushForce = overlap * 1.0; // Increased push force
                     
                     // Update positions to prevent overlap
                     playerA.position.x += nx * pushForce;
@@ -146,10 +139,18 @@ function checkCollisions(gameState) {
                     playerB.position.x -= nx * pushForce;
                     playerB.position.z -= nz * pushForce;
                     
-                    // Reduce velocities
-                    playerA.velocity *= 0.8;
-                    playerB.velocity *= 0.8;
+                    // Exchange velocities
+                    const tempVel = playerA.velocity;
+                    playerA.velocity = playerB.velocity * 0.8; // 80% velocity exchange
+                    playerB.velocity = tempVel * 0.8;
                 }
+                
+                // Emit collision event to all clients
+                io.emit('collisionDetected', {
+                    playerA_id: playerA.id,
+                    playerB_id: playerB.id,
+                    collisionPoint: collisionPoint
+                });
             }
         }
     }
