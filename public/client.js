@@ -303,7 +303,7 @@ function setupCharacterSelection() {
 
         const preview = document.createElement('img');
         preview.classList.add('character-preview');
-        const previewTexturePath = `${ASSET_BASE_URL}${char.baseSpritePath}f.png`;
+        const previewTexturePath = `${ASSET_BASE_URL}${char.baseSpritePath}/${id}f.png`;
         console.log(`[Loop ${index}] Preview image path:`, previewTexturePath);
         preview.src = previewTexturePath;
         preview.alt = char.name;
@@ -317,15 +317,14 @@ function setupCharacterSelection() {
         slot.appendChild(preview);
 
         characterGrid.appendChild(slot);
-        console.log(`[Loop ${index}] Appended slot to characterGrid.`); // Log: Append confirmation
+        console.log(`[Loop ${index}] Appended slot to characterGrid.`);
 
         slot.addEventListener('click', () => {
             selectCharacter(index);
         });
     });
-    console.log("Finished character selection loop."); // Log: Loop finished
-    selectCharacter(selectedCharacterIndex); // Ensure initial selection highlight
-    // updateCharacterSelectionHighlight(); // Called by selectCharacter
+    console.log("Finished character selection loop.");
+    selectCharacter(selectedCharacterIndex);
 }
 
 function updateCharacterSelectionHighlight() {
@@ -352,23 +351,23 @@ function updateCharacterSelectionHighlight() {
 
 let rotationIntervals = {}; // Store intervals per image element to prevent conflicts
 function startCharacterRotation(imgElement, characterData) {
-    // Use a unique key for the interval, e.g., the image src or character ID
     const intervalKey = characterData.baseSpritePath;
-    stopCharacterRotation(imgElement, intervalKey); // Stop existing interval for this element
+    stopCharacterRotation(imgElement, intervalKey);
 
     let currentAngleIndex = 0;
-    imgElement.src = `${ASSET_BASE_URL}${characterData.baseSpritePath}${characterSpriteAngles[currentAngleIndex]}.png`;
+    const characterId = characterData.baseSpritePath.split('/').pop();
+    imgElement.src = `${ASSET_BASE_URL}${characterData.baseSpritePath}/${characterId}${characterSpriteAngles[currentAngleIndex]}.png`;
 
     rotationIntervals[intervalKey] = setInterval(() => {
         currentAngleIndex = (currentAngleIndex + 1) % characterSpriteAngles.length;
-        const nextSrc = `${ASSET_BASE_URL}${characterData.baseSpritePath}${characterSpriteAngles[currentAngleIndex]}.png`;
+        const nextSrc = `${ASSET_BASE_URL}${characterData.baseSpritePath}/${characterId}${characterSpriteAngles[currentAngleIndex]}.png`;
         imgElement.src = nextSrc;
         imgElement.onerror = () => {
-             console.warn(`Sprite not found during rotation: ${imgElement.src}`);
-             stopCharacterRotation(imgElement, intervalKey);
-             imgElement.style.backgroundColor = '#555'; // Show error state
+            console.warn(`Sprite not found during rotation: ${imgElement.src}`);
+            stopCharacterRotation(imgElement, intervalKey);
+            imgElement.style.backgroundColor = '#555';
         };
-    }, 150); // Adjust speed of rotation
+    }, 150);
 }
 
 function stopCharacterRotation(imgElement, key) {
