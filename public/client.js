@@ -845,7 +845,11 @@ function handleDrivingInput() {
 
     // Initialize physics state if missing
     if (player.velocity === undefined) player.velocity = 0;
-    if (!player.position) player.position = { x: playerObject.position.x, y: playerObject.position.y - playerSpriteScale / 2, z: playerObject.position.z };
+    if (!player.position) player.position = { 
+        x: playerObject.position.x, 
+        y: 0, // Keep Y at 0 in the data
+        z: playerObject.position.z 
+    };
     if (!player.rotation) player.rotation = { y: 0 };
 
 
@@ -966,24 +970,33 @@ function handleDrivingInput() {
     if (Math.abs(player.velocity) > 0.001) { 
         let moveVector = new THREE.Vector3();
         if (isCurrentlyDrifting) {
-            // Use the calculated drift direction vector
             moveVector.copy(driftMoveDirection);
         } else {
-            // Use the standard forward direction based on current rotation
             moveVector.set(0, 0, -1).applyAxisAngle(THREE.Object3D.DEFAULT_UP, player.rotation.y);
         }
 
         moveVector.multiplyScalar(player.velocity);
 
+        // Update position, keeping Y at 0 in the data
         player.position.x += moveVector.x;
-        player.position.y += moveVector.y; // Should be 0 if moveVector is calculated correctly on XZ plane
         player.position.z += moveVector.z;
         positionChanged = true;
     }
 
-    // Update the visual object immediately for responsiveness if necessary
+    // Update the visual object with proper height
     if (positionChanged) {
-         updatePlayerObjectTransform(localPlayerId, player.position, player.rotation);
+        playerObject.position.set(
+            player.position.x,
+            playerSpriteScale / 2, // Always maintain this height for visual
+            player.position.z
+        );
+        
+        // Send update to server with ground-level position
+        socket.emit('playerUpdateState', {
+            position: { ...player.position, y: 0 },
+            rotation: player.rotation,
+            velocity: player.velocity
+        });
     }
 }
 
@@ -1958,14 +1971,14 @@ function updatePlayerPosition(playerId, position, rotation) {
     if (!players[playerId]) return;
     
     if (position) {
-        players[playerId].position = position;
+        players[playerId].position = { ...position, y: 0 }; // Keep Y at 0 in data
         if (playerObjects[playerId]) {
             const sprite = playerObjects[playerId];
             if (playerId === localPlayerId) {
-                // Update local player position immediately
+                // Update local player position immediately with correct height
                 sprite.position.set(
                     position.x,
-                    position.y + playerSpriteScale / 2,
+                    playerSpriteScale / 2, // Always use this height for visual
                     position.z
                 );
             } else {
@@ -1973,7 +1986,7 @@ function updatePlayerPosition(playerId, position, rotation) {
                 if (!sprite.userData) sprite.userData = {};
                 sprite.userData.targetPosition = new THREE.Vector3(
                     position.x,
-                    position.y + playerSpriteScale / 2,
+                    playerSpriteScale / 2, // Always use this height for visual
                     position.z
                 );
             }

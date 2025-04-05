@@ -101,6 +101,7 @@ const gameState = {
 // Add collision detection
 function checkCollisions(gameState) {
     const players = Object.values(gameState.players);
+    const collisions = [];
     
     for (let i = 0; i < players.length; i++) {
         for (let j = i + 1; j < players.length; j++) {
@@ -108,75 +109,84 @@ function checkCollisions(gameState) {
             const playerB = players[j];
             
             // Skip if either player doesn't have a position
-            if (!playerA.position || !playerB.position) continue;
+            if (!playerA?.position || !playerB?.position) {
+                console.log('Skipping collision check - missing position data');
+                continue;
+            }
             
             // Calculate distance between players
             const dx = playerA.position.x - playerB.position.x;
             const dz = playerA.position.z - playerB.position.z;
             const distance = Math.sqrt(dx * dx + dz * dz);
             
+            // Log distance for debugging
+            console.log(`Distance between players ${playerA.id} and ${playerB.id}: ${distance}`);
+            
             // Collision radius (sum of both kart radii)
             const collisionThreshold = 2.5; // Adjusted for better detection
             
             if (distance < collisionThreshold) {
+                console.log(`Collision detected! Distance: ${distance}`);
+                
                 // Calculate collision point (midpoint between players)
                 const collisionPoint = {
                     x: (playerA.position.x + playerB.position.x) / 2,
-                    y: Math.max(playerA.position.y, playerB.position.y) + 1.0, // Raise spark height
+                    y: 1.0, // Fixed height for sparks
                     z: (playerA.position.z + playerB.position.z) / 2
                 };
                 
                 // Calculate collision response
                 const overlap = collisionThreshold - distance;
-                if (overlap > 0) {
-                    // Normalize collision vector
-                    const nx = dx / distance;
-                    const nz = dz / distance;
-                    
-                    // Strong immediate separation to prevent passing through
-                    const separationForce = overlap * 3.0; // Increased force
-                    
-                    // Update positions with strong separation
-                    playerA.position.x += nx * separationForce;
-                    playerA.position.z += nz * separationForce;
-                    playerB.position.x -= nx * separationForce;
-                    playerB.position.z -= nz * separationForce;
-                    
-                    // Calculate relative velocity
-                    const relativeVelocity = Math.abs(playerA.velocity - playerB.velocity);
-                    const velocityFactor = Math.min(Math.max(relativeVelocity, 0.3), 1.0); // Ensure minimum effect
-                    
-                    // Exchange velocities with dampening
-                    const restitution = 0.8; // Increased bounce factor
-                    const tempVel = playerA.velocity;
-                    playerA.velocity = playerB.velocity * restitution;
-                    playerB.velocity = tempVel * restitution;
-                    
-                    // Add some sideways velocity for more dynamic collisions
-                    const sideForce = relativeVelocity * 0.5; // Increased side force
-                    playerA.sideVelocity = (Math.random() - 0.5) * sideForce;
-                    playerB.sideVelocity = (Math.random() - 0.5) * sideForce;
-                    
-                    // Emit collision event with intensity based on relative velocity
-                    io.emit('collisionDetected', {
-                        playerA_id: playerA.id,
-                        playerB_id: playerB.id,
-                        collisionPoint: collisionPoint,
-                        intensity: velocityFactor,
-                        sparkRange: Math.min(relativeVelocity * 0.8, 2.0) // Adjusted spark range
-                    });
-
-                    // Log collision for debugging
-                    console.log('Collision detected:', {
-                        distance,
-                        separationForce,
-                        velocityFactor,
-                        sparkRange: Math.min(relativeVelocity * 0.8, 2.0)
-                    });
-                }
+                
+                // Normalize collision vector
+                const nx = dx / distance;
+                const nz = dz / distance;
+                
+                // Strong immediate separation to prevent passing through
+                const separationForce = overlap * 3.0;
+                
+                // Update positions with strong separation
+                playerA.position.x += nx * separationForce;
+                playerA.position.z += nz * separationForce;
+                playerB.position.x -= nx * separationForce;
+                playerB.position.z -= nz * separationForce;
+                
+                // Calculate relative velocity
+                const relativeVelocity = Math.abs((playerA.velocity || 0) - (playerB.velocity || 0));
+                const velocityFactor = Math.min(Math.max(relativeVelocity, 0.3), 1.0);
+                
+                // Exchange velocities with dampening
+                const restitution = 0.8;
+                const tempVel = playerA.velocity || 0;
+                playerA.velocity = (playerB.velocity || 0) * restitution;
+                playerB.velocity = tempVel * restitution;
+                
+                // Add some sideways velocity for more dynamic collisions
+                const sideForce = relativeVelocity * 0.5;
+                playerA.sideVelocity = (Math.random() - 0.5) * sideForce;
+                playerB.sideVelocity = (Math.random() - 0.5) * sideForce;
+                
+                // Create collision event data
+                const collisionData = {
+                    playerA_id: playerA.id,
+                    playerB_id: playerB.id,
+                    collisionPoint: collisionPoint,
+                    intensity: velocityFactor,
+                    sparkRange: Math.min(relativeVelocity * 0.8, 2.0)
+                };
+                
+                // Log collision details
+                console.log('Collision details:', collisionData);
+                
+                // Emit collision event
+                io.emit('collisionDetected', collisionData);
+                
+                collisions.push(collisionData);
             }
         }
     }
+    
+    return collisions.length > 0 ? collisions : null;
 }
 
 // Socket.IO event handlers
@@ -240,12 +250,22 @@ io.on('connection', (socket) => {
 
     socket.on('playerUpdateState', (data) => {
         if (gameState.players[socket.id]) {
+            // Update player state
             if (data.position) gameState.players[socket.id].position = data.position;
             if (data.rotation) gameState.players[socket.id].rotation = data.rotation;
             if (data.velocity !== undefined) gameState.players[socket.id].velocity = data.velocity;
             
+            // Log player state for debugging
+            console.log(`Player ${socket.id} state:`, {
+                position: gameState.players[socket.id].position,
+                velocity: gameState.players[socket.id].velocity
+            });
+            
             // Check for collisions after position update
-            checkCollisions(gameState);
+            const collisions = checkCollisions(gameState);
+            if (collisions) {
+                console.log('Collisions detected:', collisions);
+            }
             
             // Broadcast to other players
             socket.broadcast.emit('updatePlayerPosition', socket.id, data.position, data.rotation);
