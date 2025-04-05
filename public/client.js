@@ -422,10 +422,14 @@ socket.on('updateGameState', (state, serverPlayers, options) => {
         if (!raceInitialized) {
             console.log('Initializing race with options:', options);
             initializeRaceScene(players, options);
+            raceInitialized = true;
         }
         // Update all player positions
         Object.entries(players).forEach(([playerId, playerData]) => {
             if (playerData.position && playerData.rotation) {
+                if (!playerObjects[playerId]) {
+                    addPlayerObject(playerId, playerData);
+                }
                 updatePlayerPosition(playerId, playerData.position, playerData.rotation);
             }
         });
@@ -511,8 +515,8 @@ function addPlayerObject(playerId, playerData) {
         const texture = getCharacterTexture(characterId, initialAngleCode);
 
         if (!texture) {
-             console.error(`Cannot create sprite for player ${playerId}, texture not loaded/failed for char ${characterId}`);
-             return;
+            console.error(`Cannot create sprite for player ${playerId}, texture not loaded/failed for char ${characterId}`);
+            return;
         }
 
         const material = new THREE.SpriteMaterial({
@@ -524,54 +528,55 @@ function addPlayerObject(playerId, playerData) {
         const sprite = new THREE.Sprite(material);
         sprite.scale.set(playerSpriteScale, playerSpriteScale, playerSpriteScale);
         sprite.userData = { characterId: characterId, currentAngleCode: initialAngleCode };
-        playerObjects[playerId] = sprite; // Keep reference to main sprite for positioning
+        playerObjects[playerId] = sprite;
 
         // Set initial sprite position
         if (playerData.position) {
-            sprite.position.set(playerData.position.x, playerData.position.y + playerSpriteScale / 2, playerData.position.z);
+            sprite.position.set(
+                playerData.position.x,
+                playerData.position.y + playerSpriteScale / 2,
+                playerData.position.z
+            );
         } else {
-             sprite.position.set(0, playerSpriteScale / 2, 0);
-             console.warn(`Player ${playerId} created without initial position.`);
+            sprite.position.set(0, playerSpriteScale / 2, 0);
+            console.warn(`Player ${playerId} created without initial position.`);
         }
         scene.add(sprite);
-        console.log(`Added player sprite for: ${playerId} with char ${characterId}`);
+        console.log(`Added player sprite for: ${playerId} with char ${characterId} at position:`, playerData.position);
 
-        // --- Create Boost Flame Sprite (Added to Scene directly) ---
-        const boostMaterial = new THREE.SpriteMaterial({
-            map: flameTextures[0],
-            transparent: true,
-            alphaTest: 0.1,
-            depthTest: false, // Don't check depth buffer
-            depthWrite: false // Don't write to depth buffer
-        });
-        const boostFlame = new THREE.Sprite(boostMaterial);
-        boostFlame.scale.set(1.0, 1.0, 1.0); // Scale adjusted previously
-        // Initial position will be set in the first updateBoostFlame call
-        boostFlame.position.set(0, 0.01, 0); // Set Y low initially
-        boostFlame.visible = false;
-        // boostFlame.renderOrder = 1; // Removed, depthTest:false handles layering
-        scene.add(boostFlame); // Add flame directly to the scene
-
-        // --- Create Drift Particles (Added to Scene directly) ---
-        const particleCount = 40; // Increased count
-        const particlesGeometry = new THREE.BufferGeometry();
-        const positions = new Float32Array(particleCount * 3); // Adjusted array size
-        particlesGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        const driftParticles = new THREE.Points(particlesGeometry, particlesMaterial);
-        // Set initial position near player, low Y. Exact position updated in updateDriftParticles
-        driftParticles.position.copy(sprite.position);
-        driftParticles.position.y = 0.05; // Initial low Y
-        driftParticles.visible = false;
-        // // driftParticles.renderOrder = 1; // Not needed if material has depthTest: false
-        scene.add(driftParticles); // ADDED: Add particles directly to the scene
-
-        // Store visual components
-        playerVisuals[playerId] = { sprite, boostFlame, driftParticles };
-
-        updatePlayerSpriteAngle(playerId, sprite, playerData);
-    } else if (!playerData.characterId) {
-         console.warn(`Player ${playerId} has no characterId, cannot create sprite.`);
+        // Create visual effects
+        createPlayerVisualEffects(playerId, sprite);
     }
+}
+
+function createPlayerVisualEffects(playerId, sprite) {
+    // Create Boost Flame
+    const boostMaterial = new THREE.SpriteMaterial({
+        map: flameTextures[0],
+        transparent: true,
+        alphaTest: 0.1,
+        depthTest: false,
+        depthWrite: false
+    });
+    const boostFlame = new THREE.Sprite(boostMaterial);
+    boostFlame.scale.set(1.0, 1.0, 1.0);
+    boostFlame.position.set(0, 0.01, 0);
+    boostFlame.visible = false;
+    scene.add(boostFlame);
+
+    // Create Drift Particles
+    const particleCount = 40;
+    const particlesGeometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    particlesGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const driftParticles = new THREE.Points(particlesGeometry, particlesMaterial);
+    driftParticles.position.copy(sprite.position);
+    driftParticles.position.y = 0.05;
+    driftParticles.visible = false;
+    scene.add(driftParticles);
+
+    // Store visual components
+    playerVisuals[playerId] = { sprite, boostFlame, driftParticles };
 }
 
 function removePlayerObject(playerId) {
@@ -1780,7 +1785,23 @@ function updatePlayerPosition(playerId, position, rotation) {
     if (position) {
         players[playerId].position = position;
         if (playerObjects[playerId]) {
-            updatePlayerObjectTransform(playerId, position, rotation);
+            const sprite = playerObjects[playerId];
+            if (playerId === localPlayerId) {
+                // Update local player position immediately
+                sprite.position.set(
+                    position.x,
+                    position.y + playerSpriteScale / 2,
+                    position.z
+                );
+            } else {
+                // Set target for remote player lerping
+                if (!sprite.userData) sprite.userData = {};
+                sprite.userData.targetPosition = new THREE.Vector3(
+                    position.x,
+                    position.y + playerSpriteScale / 2,
+                    position.z
+                );
+            }
         }
     }
     

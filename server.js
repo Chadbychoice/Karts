@@ -17,10 +17,10 @@ const courses = {
         id: 1,
         name: "Test Track",
         checkpoints: [
-            { x: 0, y: 0, z: 0 },
-            { x: 100, y: 0, z: 0 },
-            { x: 100, y: 0, z: 100 },
-            { x: 0, y: 0, z: 100 }
+            { x: -40, y: 0, z: 0 },
+            { x: 40, y: 0, z: 0 },
+            { x: 40, y: 0, z: 40 },
+            { x: -40, y: 0, z: 40 }
         ],
         startPositions: [
             { x: 0, y: 1, z: 0 },
@@ -30,17 +30,17 @@ const courses = {
         ],
         startRotation: { y: 0 },
         terrain: [
-            { type: 'road', x: 0, y: 0, z: 0, width: 20, length: 200 },
-            { type: 'grass', x: -50, y: 0, z: 0, width: 30, length: 200 },
-            { type: 'grass', x: 50, y: 0, z: 0, width: 30, length: 200 }
+            { type: 'road', x: 0, y: 0, z: 0, width: 80, length: 80 },
+            { type: 'grass', x: -50, y: 0, z: 0, width: 20, length: 80 },
+            { type: 'grass', x: 50, y: 0, z: 0, width: 20, length: 80 }
         ],
         obstacles: [
-            { type: 'mud', x: 30, y: 0, z: 50, width: 10, length: 20 },
-            { type: 'mud', x: -30, y: 0, z: 150, width: 10, length: 20 }
+            { type: 'mud', x: 20, y: 0, z: 20, width: 10, length: 10 },
+            { type: 'mud', x: -20, y: 0, z: 40, width: 10, length: 10 }
         ],
         decorations: [
-            { type: 'startline', x: 0, y: 0.1, z: 10, rotation: { y: 0 } },
-            { type: 'finishline', x: 0, y: 0.1, z: 190, rotation: { y: 0 } }
+            { type: 'startline', x: 0, y: 0.1, z: 5, rotation: { y: 0 } },
+            { type: 'finishline', x: 0, y: 0.1, z: 75, rotation: { y: 0 } }
         ]
     }
 };
