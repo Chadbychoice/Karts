@@ -223,13 +223,18 @@ function preloadAssets() {
 function getCharacterTexture(characterId, angle = 'b') {
     const cacheKey = `${characterId}_${angle}`;
     if (!characterTextures[cacheKey]) {
-        const characterData = characters[characterId];
-        if (!characterData) {
+        const character = characters[characterId];
+        if (!character) {
             console.error(`Invalid characterId: ${characterId}`);
             return null;
         }
-        const texturePath = `${ASSET_BASE_URL}${characterData.baseSpritePath}${angle}.png`;
-        console.log(`Loading texture: ${texturePath}`); // Add logging for texture loading
+
+        const textureLoader = new THREE.TextureLoader();
+        textureLoader.crossOrigin = 'anonymous';
+
+        const texturePath = `${ASSET_BASE_URL}${character.baseSpritePath}/${characterId}${angle}.png`;
+        console.log('Loading texture:', texturePath);
+        
         characterTextures[cacheKey] = textureLoader.load(
             texturePath,
             (texture) => {
@@ -249,6 +254,7 @@ function getCharacterTexture(characterId, angle = 'b') {
             }
         );
     }
+
     // If texture failed to load, try a different angle or return null
     if (!characterTextures[cacheKey]) {
         if (angle !== 'b') {
