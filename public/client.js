@@ -112,14 +112,14 @@ const selectedCharacterNameElement = document.getElementById('selected-character
 
 // --- Character Data ---
 const characters = {
-    1: { name: "Turbo Hank", baseSpritePath: "/Sprites/characters/1" },
-    2: { name: "Stella Vroom", baseSpritePath: "/Sprites/characters/2" },
-    3: { name: "Bongo Blitz", baseSpritePath: "/Sprites/characters/3" },
-    4: { name: "Krash Krawl", baseSpritePath: "/Sprites/characters/4" },
-    5: { name: "Kara Krawl", baseSpritePath: "/Sprites/characters/5" },
-    6: { name: "Freddy", baseSpritePath: "/Sprites/characters/6" },
-    7: { name: "Laurette", baseSpritePath: "/Sprites/characters/7" },
-    8: { name: "Fierry Farez", baseSpritePath: "/Sprites/characters/8" }
+    1: { name: "Turbo Hank", baseSpritePath: "/Sprites/characters" },
+    2: { name: "Stella Vroom", baseSpritePath: "/Sprites/characters" },
+    3: { name: "Bongo Blitz", baseSpritePath: "/Sprites/characters" },
+    4: { name: "Krash Krawl", baseSpritePath: "/Sprites/characters" },
+    5: { name: "Kara Krawl", baseSpritePath: "/Sprites/characters" },
+    6: { name: "Freddy", baseSpritePath: "/Sprites/characters" },
+    7: { name: "Laurette", baseSpritePath: "/Sprites/characters" },
+    8: { name: "Fierry Farez", baseSpritePath: "/Sprites/characters" }
 };
 
 const characterSpriteAngles = ['f', 'fr', 'r', 'br', 'b', 'bl', 'l', 'fl'];
