@@ -1,12 +1,11 @@
 {
-  "name": "karts-multiplayer",
+  "name": "karts-game",
   "version": "1.0.0",
   "type": "module",
-  "description": "Multiplayer kart racing game",
-  "main": "server.js",
+  "private": true,
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js",
+    "dev": "cross-env NODE_ENV=development node server.js",
     "build": "mkdir -p public/levels"
   },
   "engines": {
@@ -15,12 +14,6 @@
   "dependencies": {
     "express": "^4.18.2",
     "socket.io": "^4.7.2",
-    "nodemon": "^3.0.2"
-  },
-  "devDependencies": {
-    "nodemon": "^2.0.7"
-  },
-  "author": "",
-  "license": "ISC",
-  "private": true
+    "cross-env": "^7.0.3"
+  }
 }

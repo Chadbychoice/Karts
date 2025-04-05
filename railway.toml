@@ -1,13 +1,17 @@
 [build]
-builder = "NIXPACKS"
-buildCommand = "npm run build"
+builder = "nixpacks"
+buildCommand = "npm install"
 
 [deploy]
 startCommand = "npm start"
 healthcheckPath = "/health"
 healthcheckTimeout = 100
-restartPolicyType = "ON_FAILURE"
+restartPolicyType = "on-failure"
 restartPolicyMaxRetries = 10
+
+[deploy.env]
+NODE_ENV = "production"
+PORT = "3000"
 
 [deploy.kv]
 RAILWAY_STATIC_URL = { sync = true }

@@ -1650,19 +1650,48 @@ socket.on('collisionDetected', ({ playerA_id, playerB_id, collisionPoint }) => {
     // Convert collisionPoint to THREE.Vector3
     const collisionVec = new THREE.Vector3(
         collisionPoint.x,
-        collisionPoint.y + 1, // Raise sparks slightly above ground
+        collisionPoint.y + 0.5, // Lower spark height
         collisionPoint.z
     );
     
     // Trigger spark effect
     triggerSparks(collisionVec);
     
-    // Add screen shake for local player if involved
+    // Handle collision physics if local player is involved
     if (playerA_id === localPlayerId || playerB_id === localPlayerId) {
-        // TODO: Add screen shake effect
-        console.log('Local player involved in collision!');
+        const otherPlayerId = playerA_id === localPlayerId ? playerB_id : playerA_id;
+        handleCollisionPhysics(localPlayerId, otherPlayerId);
     }
 });
+
+function handleCollisionPhysics(playerId1, playerId2) {
+    if (!players[playerId1] || !players[playerId2]) return;
+    
+    const player1 = players[playerId1];
+    const player2 = players[playerId2];
+    
+    // Calculate collision normal
+    const dx = player1.position.x - player2.position.x;
+    const dz = player1.position.z - player2.position.z;
+    const distance = Math.sqrt(dx * dx + dz * dz);
+    
+    if (distance < 0.001) return; // Prevent division by zero
+    
+    // Normalize the collision vector
+    const nx = dx / distance;
+    const nz = dz / distance;
+    
+    // Simple elastic collision response
+    const bounceForce = 0.5; // Reduced bounce force
+    
+    // Only modify local player's velocity
+    if (playerId1 === localPlayerId) {
+        player1.velocity *= -0.5; // Reduce and reverse velocity
+        // Push away from other player
+        player1.position.x += nx * bounceForce;
+        player1.position.z += nz * bounceForce;
+    }
+}
 
 // --- Spark Functions ---
 function initializeSparkSystem() {
@@ -1714,11 +1743,9 @@ function triggerSparks(origin) {
         return;
     }
 
-    console.log('Triggering sparks at', origin);
     sparkSystem.visible = true;
-
     let sparksCreated = 0;
-    const numSparksToCreate = 12; // Increased number of sparks
+    const numSparksToCreate = 8; // Reduced number of sparks
 
     for (let i = 0; i < MAX_SPARKS && sparksCreated < numSparksToCreate; i++) {
         if (sparkParticles[i].life <= 0) {
@@ -1733,12 +1760,12 @@ function triggerSparks(origin) {
                 origin.z
             );
             
-            // Random outward velocity with more vertical spread
+            // Reduced velocity and spread
             const angle = Math.random() * Math.PI * 2;
-            const speed = 0.2 + Math.random() * 0.3;
+            const speed = 0.05 + Math.random() * 0.1; // Reduced speed
             sparkParticles[i].velocity.set(
                 Math.cos(angle) * speed,
-                0.1 + Math.random() * 0.4, // More upward velocity
+                0.05 + Math.random() * 0.1, // Reduced vertical velocity
                 Math.sin(angle) * speed
             );
 
@@ -1769,21 +1796,27 @@ function updateSparks() {
         if (sparkParticles[i].life > 0) {
             sparkParticles[i].life -= delta;
             if (sparkParticles[i].life <= 0) {
-                // Hide particle (move far away or set scale to 0 if using InstancedMesh)
                 positions[i * 3 + 1] = -10000; // Move offscreen
             } else {
-                // Update position
-                positions[i * 3 + 0] += sparkParticles[i].velocity.x * delta * 0.05; // Reduced speed multiplier
-                positions[i * 3 + 1] += sparkParticles[i].velocity.y * delta * 0.05; // Reduced speed multiplier
-                positions[i * 3 + 2] += sparkParticles[i].velocity.z * delta * 0.05; // Reduced speed multiplier
-                aliveCount++;
+                // Reduced movement speed and add gravity
+                positions[i * 3 + 0] += sparkParticles[i].velocity.x * delta * 0.01;
+                positions[i * 3 + 1] += (sparkParticles[i].velocity.y * delta * 0.01) - (0.0001 * delta); // Add gravity
+                positions[i * 3 + 2] += sparkParticles[i].velocity.z * delta * 0.01;
+                
+                // Make sparks disappear if they hit the ground
+                if (positions[i * 3 + 1] < 0.01) {
+                    sparkParticles[i].life = 0;
+                    positions[i * 3 + 1] = -10000;
+                } else {
+                    aliveCount++;
+                }
             }
         }
     }
 
     sparkSystem.geometry.attributes.position.needsUpdate = true;
     if (aliveCount === 0) {
-        sparkSystem.visible = false; // Hide system if no sparks are alive
+        sparkSystem.visible = false;
     }
 }
 

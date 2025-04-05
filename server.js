@@ -13,8 +13,8 @@ const server = createServer(app);
 
 // Course data
 const courses = {
-    1: {
-        id: 1,
+    test: {
+        id: 'test',
         name: "Test Track",
         planeSize: { width: 100, height: 200 },
         roadTexturePath: '/textures/road.png',
@@ -44,10 +44,6 @@ const courses = {
         decorations: [
             { type: 'startline', x: 0, y: 0.1, z: 5, rotation: { y: 0 } },
             { type: 'finishline', x: 0, y: 0.1, z: 75, rotation: { y: 0 } }
-        ],
-        // Add collision detection boundaries
-        collisionBoundaries: [
-            { type: 'box', min: { x: -50, y: 0, z: -100 }, max: { x: 50, y: 3, z: 100 } }
         ]
     }
 };
@@ -99,23 +95,28 @@ const gameState = {
     state: 'character-selection',
     players: {},
     readyPlayers: new Set(),
-    currentCourse: 1
+    currentCourse: 'test'
 };
 
 // Add collision detection
-function checkCollisions(players) {
-    const playerIds = Object.keys(players);
-    for (let i = 0; i < playerIds.length; i++) {
-        for (let j = i + 1; j < playerIds.length; j++) {
-            const playerA = players[playerIds[i]];
-            const playerB = players[playerIds[j]];
+function checkCollisions(gameState) {
+    const players = Object.values(gameState.players);
+    
+    for (let i = 0; i < players.length; i++) {
+        for (let j = i + 1; j < players.length; j++) {
+            const playerA = players[i];
+            const playerB = players[j];
             
-            // Simple sphere collision detection
+            // Calculate distance between players
             const dx = playerA.position.x - playerB.position.x;
             const dz = playerA.position.z - playerB.position.z;
             const distance = Math.sqrt(dx * dx + dz * dz);
             
-            if (distance < 2) { // Collision threshold
+            // Collision radius (sum of both kart radii)
+            const collisionThreshold = 1.0; // Reduced from previous value
+            
+            if (distance < collisionThreshold) {
+                // Calculate collision point (midpoint between players)
                 const collisionPoint = {
                     x: (playerA.position.x + playerB.position.x) / 2,
                     y: (playerA.position.y + playerB.position.y) / 2,
@@ -124,10 +125,31 @@ function checkCollisions(players) {
                 
                 // Emit collision event to all clients
                 io.emit('collisionDetected', {
-                    playerA_id: playerIds[i],
-                    playerB_id: playerIds[j],
-                    collisionPoint
+                    playerA_id: playerA.id,
+                    playerB_id: playerB.id,
+                    collisionPoint: collisionPoint
                 });
+                
+                // Update velocities (basic collision response)
+                const overlap = collisionThreshold - distance;
+                if (overlap > 0) {
+                    // Normalize collision vector
+                    const nx = dx / distance;
+                    const nz = dz / distance;
+                    
+                    // Push players apart
+                    const pushForce = overlap * 0.5; // Half the overlap for each player
+                    
+                    // Update positions to prevent overlap
+                    playerA.position.x += nx * pushForce;
+                    playerA.position.z += nz * pushForce;
+                    playerB.position.x -= nx * pushForce;
+                    playerB.position.z -= nz * pushForce;
+                    
+                    // Reduce velocities
+                    playerA.velocity *= 0.8;
+                    playerB.velocity *= 0.8;
+                }
             }
         }
     }
@@ -199,7 +221,7 @@ io.on('connection', (socket) => {
             if (data.velocity !== undefined) gameState.players[socket.id].velocity = data.velocity;
             
             // Check for collisions after position update
-            checkCollisions(gameState.players);
+            checkCollisions(gameState);
             
             // Broadcast to other players
             socket.broadcast.emit('updatePlayerPosition', socket.id, data.position, data.rotation);
