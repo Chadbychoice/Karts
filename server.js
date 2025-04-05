@@ -43,37 +43,110 @@ app.get('/health', (req, res) => {
 });
 
 // Game state
-let gameState = {
+const gameState = {
+    state: 'character-selection',
     players: {},
-    currentState: 'waiting'
+    readyPlayers: new Set(),
+    currentCourse: 1
 };
 
 // Socket.IO event handlers
 io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
     
+    // Add player to game state
     gameState.players[socket.id] = {
         id: socket.id,
         connected: true,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        characterId: null,
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { y: 0 },
+        velocity: 0
     };
 
-    socket.emit('gameState', gameState);
+    // Send current game state to the new player
+    socket.emit('updateGameState', gameState.state, gameState.players, {
+        courseId: gameState.currentCourse
+    });
+
+    // Handle character selection
+    socket.on('playerSelectCharacter', (characterId) => {
+        console.log(`Player ${socket.id} selected character ${characterId}`);
+        if (gameState.players[socket.id]) {
+            gameState.players[socket.id].characterId = characterId;
+            gameState.readyPlayers.add(socket.id);
+            
+            // Check if all connected players have selected characters
+            const allPlayersReady = Object.keys(gameState.players).every(playerId => 
+                gameState.players[playerId].characterId !== null
+            );
+
+            if (allPlayersReady || gameState.readyPlayers.size >= 1) {
+                console.log('All players ready, starting race!');
+                gameState.state = 'racing';
+                io.emit('updateGameState', gameState.state, gameState.players, {
+                    courseId: gameState.currentCourse
+                });
+            }
+        }
+    });
+
+    socket.on('playerUpdateState', (data) => {
+        if (gameState.players[socket.id]) {
+            if (data.position) gameState.players[socket.id].position = data.position;
+            if (data.rotation) gameState.players[socket.id].rotation = data.rotation;
+            if (data.velocity !== undefined) gameState.players[socket.id].velocity = data.velocity;
+            
+            // Broadcast to other players
+            socket.broadcast.emit('updatePlayerPosition', socket.id, data.position, data.rotation);
+        }
+    });
+
+    socket.on('playerDriftStateChange', (isDrifting, direction) => {
+        if (gameState.players[socket.id]) {
+            gameState.players[socket.id].isDrifting = isDrifting;
+            gameState.players[socket.id].driftDirection = direction;
+            socket.broadcast.emit('updatePlayerEffectsState', socket.id, {
+                isDrifting,
+                driftDirection: direction
+            });
+        }
+    });
+
+    socket.on('playerBoostStart', (data) => {
+        if (gameState.players[socket.id]) {
+            gameState.players[socket.id].isBoosting = true;
+            gameState.players[socket.id].boostLevel = data.level;
+            socket.broadcast.emit('updatePlayerEffectsState', socket.id, {
+                isBoosting: true,
+                boostLevel: data.level
+            });
+            
+            // Schedule boost end
+            setTimeout(() => {
+                if (gameState.players[socket.id]) {
+                    gameState.players[socket.id].isBoosting = false;
+                    gameState.players[socket.id].boostLevel = 0;
+                    socket.broadcast.emit('updatePlayerEffectsState', socket.id, {
+                        isBoosting: false,
+                        boostLevel: 0
+                    });
+                }
+            }, data.duration);
+        }
+    });
 
     socket.on('disconnect', () => {
         console.log('Client disconnected:', socket.id);
+        gameState.readyPlayers.delete(socket.id);
         delete gameState.players[socket.id];
         io.emit('playerLeft', socket.id);
-    });
 
-    socket.on('playerUpdate', (data) => {
-        if (gameState.players[socket.id]) {
-            gameState.players[socket.id] = {
-                ...gameState.players[socket.id],
-                ...data,
-                timestamp: Date.now()
-            };
-            socket.broadcast.emit('playerUpdated', socket.id, data);
+        // If no players left, reset game state
+        if (Object.keys(gameState.players).length === 0) {
+            gameState.state = 'character-selection';
+            gameState.readyPlayers.clear();
         }
     });
 });
