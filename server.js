@@ -11,6 +11,35 @@ const __dirname = dirname(__filename);
 const app = express();
 const server = createServer(app);
 
+// Course data
+const courses = {
+    1: {
+        id: 1,
+        name: "Beginner's Track",
+        checkpoints: [
+            { x: 0, y: 0, z: 0 },
+            { x: 100, y: 0, z: 0 },
+            { x: 100, y: 0, z: 100 },
+            { x: 0, y: 0, z: 100 }
+        ],
+        startPosition: { x: 0, y: 1, z: 0 },
+        startRotation: { y: 0 },
+        terrain: [
+            { type: 'road', x: 0, y: 0, z: 0, width: 20, length: 200 },
+            { type: 'grass', x: -50, y: 0, z: 0, width: 30, length: 200 },
+            { type: 'grass', x: 50, y: 0, z: 0, width: 30, length: 200 }
+        ],
+        obstacles: [
+            { type: 'mud', x: 30, y: 0, z: 50, width: 10, length: 20 },
+            { type: 'mud', x: -30, y: 0, z: 150, width: 10, length: 20 }
+        ],
+        decorations: [
+            { type: 'startline', x: 0, y: 0.1, z: 10, rotation: { y: 0 } },
+            { type: 'finishline', x: 0, y: 0.1, z: 190, rotation: { y: 0 } }
+        ]
+    }
+};
+
 // Configure Socket.IO
 const io = new Server(server, {
     cors: {
@@ -42,6 +71,17 @@ app.get('/health', (req, res) => {
     });
 });
 
+// Course data endpoint
+app.get('/api/courses/:id', (req, res) => {
+    const courseId = parseInt(req.params.id);
+    const course = courses[courseId];
+    if (course) {
+        res.json(course);
+    } else {
+        res.status(404).json({ error: 'Course not found' });
+    }
+});
+
 // Game state
 const gameState = {
     state: 'character-selection',
@@ -60,14 +100,18 @@ io.on('connection', (socket) => {
         connected: true,
         timestamp: Date.now(),
         characterId: null,
-        position: { x: 0, y: 0, z: 0 },
-        rotation: { y: 0 },
-        velocity: 0
+        position: courses[1].startPosition,
+        rotation: courses[1].startRotation,
+        velocity: 0,
+        lap: 1,
+        nextCheckpoint: 0,
+        finishedRace: false
     };
 
     // Send current game state to the new player
     socket.emit('updateGameState', gameState.state, gameState.players, {
-        courseId: gameState.currentCourse
+        courseId: gameState.currentCourse,
+        courseData: courses[gameState.currentCourse]
     });
 
     // Handle character selection
@@ -85,8 +129,19 @@ io.on('connection', (socket) => {
             if (allPlayersReady || gameState.readyPlayers.size >= 1) {
                 console.log('All players ready, starting race!');
                 gameState.state = 'racing';
+                
+                // Reset all players to start position
+                Object.values(gameState.players).forEach(player => {
+                    player.position = { ...courses[gameState.currentCourse].startPosition };
+                    player.rotation = { ...courses[gameState.currentCourse].startRotation };
+                    player.lap = 1;
+                    player.nextCheckpoint = 0;
+                    player.finishedRace = false;
+                });
+
                 io.emit('updateGameState', gameState.state, gameState.players, {
-                    courseId: gameState.currentCourse
+                    courseId: gameState.currentCourse,
+                    courseData: courses[gameState.currentCourse]
                 });
             }
         }

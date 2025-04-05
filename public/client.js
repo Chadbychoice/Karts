@@ -1585,183 +1585,97 @@ function updateBoostFlame(playerId, now) {
 }
 
 // NEW Function to create course from loaded data
-function createCourseFromData(levelData) {
-    console.log("Creating course from data:", levelData);
-    if (!levelData || !levelData.tiles || !levelData.elements) {
-        console.error("Invalid level data provided to createCourseFromData.");
-        loadCourse(1); // Fallback to default
-        return;
+function createCourseFromData(courseData) {
+    if (!courseData || !courseData.terrain || !courseData.obstacles || !courseData.decorations) {
+        console.error('Invalid level data provided to createCourseFromData.');
+        return null;
     }
 
-    // --- Define mapping from editor coords to world coords ---
-    const TILE_SIZE_EDITOR = 32; // Matches editor.js
-    const GRID_WIDTH_EDITOR = 40;
-    const GRID_HEIGHT_EDITOR = 30;
-    const WORLD_SCALE = 30.0; // <<< Further increased overall positioning scale (1.5x)
-    const GROUND_TILE_WORLD_SIZE = 30.0; // <<< Match ground tile size to new world scale
-    // Calculate world offset to center the grid (optional, adjust as needed)
-    const worldOffsetX = -(GRID_WIDTH_EDITOR * WORLD_SCALE) / 2;
-    const worldOffsetZ = -(GRID_HEIGHT_EDITOR * WORLD_SCALE) / 2;
+    const course = {
+        terrain: [],
+        obstacles: [],
+        decorations: [],
+        checkpoints: courseData.checkpoints || [],
+        startPosition: courseData.startPosition || { x: 0, y: 1, z: 0 },
+        startRotation: courseData.startRotation || { y: 0 }
+    };
 
-    function editorToWorld(editorX, editorY) {
-        return {
-            x: worldOffsetX + (editorX + 0.5) * WORLD_SCALE,
-            y: 0, // Assuming flat ground for now
-            z: worldOffsetZ + (editorY + 0.5) * WORLD_SCALE
-        };
-    }
-
-    // --- Create Ground Tiles ---
-    // Consider creating one large ground plane or fewer larger planes for performance
-    // For now, map tiles directly (might be slow for large maps)
-    levelData.tiles.forEach(tile => {
-        const pos = editorToWorld(tile.x, tile.y);
-        let textureUrl = null;
-        let color = 0x888888; // Default grey
-
-        switch (tile.type) {
-            case 'grass': textureUrl = '/textures/grass.png'; color = 0x34A853; break;
-            case 'mud': textureUrl = '/textures/mud.png'; color = 0x8B4513; break;
-            case 'road_v':
-            case 'road_h':
-            case 'road_ne':
-            case 'road_nw':
-            case 'road_se':
-            case 'road_sw': textureUrl = '/textures/road.png'; color = 0x666666; break;
-            case 'startfinish': textureUrl = '/textures/startfinishline.png'; color = 0xaaaaaa; break;
-            default: textureUrl = '/textures/grass.png'; // Default to grass if unknown type
-        }
-
-        // Make geometry slightly larger than spacing to prevent gaps
-        const overlap = 0.1;
-        const groundGeometry = new THREE.PlaneGeometry(GROUND_TILE_WORLD_SIZE + overlap, GROUND_TILE_WORLD_SIZE + overlap);
-        let groundMaterial;
-
-        if (textureUrl && textures[textureUrl]) {
-             groundMaterial = new THREE.MeshStandardMaterial({ map: textures[textureUrl] }); // Revert to Lambert or Standard
-        } else {
-            console.warn(`Texture not preloaded or not found for tile type: ${tile.type} (path: ${textureUrl}). Using color.`);
-            groundMaterial = new THREE.MeshStandardMaterial({ map: textures[textureUrl] }); // Revert to Lambert or Standard
-        }
-
-        const groundMesh = new THREE.Mesh(groundGeometry, groundMaterial);
-        groundMesh.rotation.x = -Math.PI / 2; // Rotate plane to be flat
-        // Add tiny random offset to prevent Z-fighting
-        const randomYOffset = (Math.random() - 0.5) * 0.01; // <<< Increased random offset magnitude
-        groundMesh.position.set(pos.x, pos.y - 0.01 + randomYOffset, pos.z);
-
-        // TODO: Handle road rotations/variants based on tile.variant
-
-        scene.add(groundMesh);
-
-        // --- Add Striped Edges --- 
-        const stripeTextureKey = '/textures/stripedline.png';
-        const stripeTextureFlipKey = '/textures/stripedlineflip.png';
-        if (textures[stripeTextureKey] && tile.type.startsWith('road')) { // Only add stripes to road tiles
-            const stripeMap = textures[stripeTextureKey];
-            const stripeMapFlip = textures[stripeTextureFlipKey];
-
-            // Material for N/S (using flipped texture, no Z rotation)
-            const stripeMaterialNS = new THREE.MeshStandardMaterial({
-                map: stripeMapFlip, // Use flipped texture
-                color: stripeMapFlip ? 0xffffff : 0x00ff00, // GREEN fallback for NS
-                transparent: true, alphaTest: 0.1, depthWrite: false,
-                polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -4.0
-            });
-
-            // Material for E/W (using original texture, WITH Z rotation)
-            const stripeMaterial = new THREE.MeshStandardMaterial({
-                map: stripeMap,
-                color: stripeMap ? 0xffffff : 0xff0000, // White if texture loads, RED fallback
-                transparent: true, alphaTest: 0.1, depthWrite: false,
-                polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -4.0
-            });
-
-            const isRoad = (t) => t && t.type.startsWith('road'); // Helper to check if a tile is road
-
-            const neighbors = {
-                n: levelData.tiles.find(t => t.x === tile.x && t.y === tile.y - 1),
-                s: levelData.tiles.find(t => t.x === tile.x && t.y === tile.y + 1),
-                e: levelData.tiles.find(t => t.x === tile.x + 1 && t.y === tile.y),
-                w: levelData.tiles.find(t => t.x === tile.x - 1 && t.y === tile.y)
-            };
-
-            const stripeHeight = 1.0; // Increased stripe height
-            const stripeWidth = GROUND_TILE_WORLD_SIZE; // Full width of the tile edge
-            const stripeGeometryNS = new THREE.PlaneGeometry(stripeWidth, stripeHeight);
-            const stripeGeometryEW = new THREE.PlaneGeometry(stripeHeight, stripeWidth); // Swapped dimensions
-
-            // Check North edge
-            if (!isRoad(neighbors.n)) {
-                const stripeN = new THREE.Mesh(stripeGeometryNS, stripeMaterial); // Use Original Material
-                stripeN.rotation.x = -Math.PI / 2;
-                stripeN.rotation.z = Math.PI; // Add Z rotation
-                stripeN.position.set(pos.x, pos.y, pos.z - GROUND_TILE_WORLD_SIZE / 2);
-                scene.add(stripeN);
-            }
-            // Check South edge
-            if (!isRoad(neighbors.s)) {
-                const stripeS = new THREE.Mesh(stripeGeometryNS, stripeMaterial); // Use Original Material
-                stripeS.rotation.x = -Math.PI / 2;
-                stripeS.rotation.z = Math.PI; // Add Z rotation
-                stripeS.position.set(pos.x, pos.y, pos.z + GROUND_TILE_WORLD_SIZE / 2);
-                scene.add(stripeS);
-            }
-            // Check East edge
-            if (!isRoad(neighbors.e)) {
-                const stripeE = new THREE.Mesh(stripeGeometryEW, stripeMaterialNS); // Use NS (Flipped) Material
-                stripeE.rotation.x = -Math.PI / 2;
-                stripeE.position.set(pos.x + GROUND_TILE_WORLD_SIZE / 2, pos.y, pos.z);
-                scene.add(stripeE);
-            }
-            // Check West edge
-            if (!isRoad(neighbors.w)) {
-                const stripeW = new THREE.Mesh(stripeGeometryEW, stripeMaterialNS); // Use NS (Flipped) Material
-                stripeW.rotation.x = -Math.PI / 2;
-                stripeW.position.set(pos.x - GROUND_TILE_WORLD_SIZE / 2, pos.y, pos.z);
-                scene.add(stripeW);
-            }
+    // Create terrain
+    courseData.terrain.forEach(terrainData => {
+        const terrain = createTerrainSection(
+            terrainData.type,
+            terrainData.x,
+            terrainData.y,
+            terrainData.z,
+            terrainData.width,
+            terrainData.length
+        );
+        if (terrain) {
+            course.terrain.push(terrain);
         }
     });
 
-    // --- Create Elements (Walls, etc.) ---
-    levelData.elements.forEach(element => {
-        const pos = editorToWorld(element.x, element.y);
-        let elementMesh = null;
-        // Reduce relative element size
-        // Adjust factors to keep element size somewhat constant despite increased WORLD_SCALE
-        const elementSize = WORLD_SCALE * 0.27; // Approx 8.1 with WORLD_SCALE=30
-        const elementHeight = WORLD_SCALE * 0.2; // Approx 6.0 with WORLD_SCALE=30
-
-        // Simple box geometry for now
-        const geometry = new THREE.BoxGeometry(elementSize, elementHeight, elementSize);
-        let material;
-
-        // Basic color mapping (improve with textures later)
-        let color = 0xCCCCCC;
-        switch (element.type) {
-            case 'startgate': color = 0xFFFF00; break; // Yellow
-            case 'blueblock': color = 0x4285F4; break; // Blue
-            case 'greenblock': color = 0x34A853; break; // Green
-            case 'darkgreenblock': color = 0x0F9D58; break; // Dark Green
-            case 'redblock': color = 0xEA4335; break; // Red
-            case 'yellowblock': color = 0xFBBC05; break; // Yellow/Orange
-            case 'tiresred': color = 0xEA4335; break;
-            case 'tireswhite': color = 0xFFFFFF; break;
-            default: color = 0x999999; // Default grey for unknown elements
-        }
-        material = new THREE.MeshStandardMaterial({ color: color }); // Revert to Lambert or Standard
-        elementMesh = new THREE.Mesh(geometry, material);
-        elementMesh.position.set(pos.x, pos.y + elementHeight / 2, pos.z);
-
-        // TODO: Add textures, rotations, different geometries based on element.type
-
-        if (elementMesh) {
-            scene.add(elementMesh);
+    // Create obstacles
+    courseData.obstacles.forEach(obstacleData => {
+        const obstacle = createObstacle(
+            obstacleData.type,
+            obstacleData.x,
+            obstacleData.y,
+            obstacleData.z,
+            obstacleData.width,
+            obstacleData.length
+        );
+        if (obstacle) {
+            course.obstacles.push(obstacle);
         }
     });
 
-    console.log("Finished creating course from data.");
+    // Create decorations
+    courseData.decorations.forEach(decorationData => {
+        const decoration = createDecoration(
+            decorationData.type,
+            decorationData.x,
+            decorationData.y,
+            decorationData.z,
+            decorationData.rotation
+        );
+        if (decoration) {
+            course.decorations.push(decoration);
+        }
+    });
+
+    return course;
+}
+
+// Helper functions for course creation
+function createTerrainSection(type, x, y, z, width, length) {
+    // Implementation depends on your game engine
+    // This is a placeholder
+    return {
+        type,
+        position: { x, y, z },
+        dimensions: { width, length }
+    };
+}
+
+function createObstacle(type, x, y, z, width, length) {
+    // Implementation depends on your game engine
+    // This is a placeholder
+    return {
+        type,
+        position: { x, y, z },
+        dimensions: { width, length }
+    };
+}
+
+function createDecoration(type, x, y, z, rotation) {
+    // Implementation depends on your game engine
+    // This is a placeholder
+    return {
+        type,
+        position: { x, y, z },
+        rotation
+    };
 }
 
 // Function to clean up scene objects and state when race ends or resets
@@ -1934,4 +1848,39 @@ function updateSparks() {
         sparkSystem.visible = false; // Hide system if no sparks are alive
     }
 }
+
+// Course loading and creation
+async function loadCourse(courseId) {
+    try {
+        const response = await fetch(`/api/courses/${courseId}`);
+        if (!response.ok) {
+            throw new Error(`Failed to load course ${courseId}`);
+        }
+        const courseData = await response.json();
+        return courseData;
+    } catch (error) {
+        console.error('Error loading course:', error);
+        return null;
+    }
+}
+
+// Update game state handler
+socket.on('updateGameState', async (state, players, options) => {
+    console.log('Received game state update:', state);
+    
+    if (state === 'racing' && options.courseData) {
+        const course = createCourseFromData(options.courseData);
+        if (course) {
+            await initializeRaceScene(course);
+            // Position all players
+            Object.entries(players).forEach(([playerId, playerData]) => {
+                updatePlayerPosition(playerId, playerData.position, playerData.rotation);
+            });
+        } else {
+            console.error('Failed to create course from data');
+        }
+    } else if (state === 'character-selection') {
+        showCharacterSelection();
+    }
+});
 
