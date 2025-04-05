@@ -13,7 +13,7 @@ import { OutputShader } from './jsm/shaders/OutputShader.js';
 // --- Basic Setup ---
 // Get the WebSocket URL based on environment
 const WEBSOCKET_URL = window.location.hostname === 'localhost' 
-    ? 'http://localhost:3000'
+    ? 'http://localhost:3000' 
     : 'https://karts-websocket.onrender.com';
 
 console.log('Connecting to WebSocket server at:', WEBSOCKET_URL);
@@ -218,28 +218,42 @@ function getCharacterTexture(characterId, angle = 'b') {
         const characterData = characters[characterId];
         if (!characterData) {
             console.error(`Invalid characterId: ${characterId}`);
-            // Return a placeholder or default texture?
-            return null; // Or create a default colored texture
+            return null;
         }
         const texturePath = `${characterData.baseSpritePath}${angle}.png`;
-        // console.log(`Loading texture: ${texturePath}`); // Reduce console spam
+        console.log(`Loading texture: ${texturePath}`); // Add logging for texture loading
         characterTextures[cacheKey] = textureLoader.load(
             texturePath,
-            (texture) => { // onLoad
+            (texture) => {
                 texture.magFilter = THREE.NearestFilter;
-                texture.minFilter = THREE.NearestFilter; // Use NearestFilter for pixelated look
-                // console.log(`Texture loaded: ${texturePath}`);
+                texture.minFilter = THREE.NearestFilter;
+                console.log(`Successfully loaded texture: ${texturePath}`);
             },
-            undefined, // onProgress (optional)
-            (err) => { // onError
+            undefined,
+            (err) => {
                 console.error(`Failed to load texture: ${texturePath}`, err);
-                // Maybe mark this texture as failed in the cache
-                characterTextures[cacheKey] = null; // Or a default error texture
+                characterTextures[cacheKey] = null;
+                // If front texture fails to load, try loading back texture as fallback
+                if (angle === 'f') {
+                    console.log(`Attempting to load fallback texture for character ${characterId}`);
+                    getCharacterTexture(characterId, 'b');
+                }
             }
         );
     }
-     // Handle case where texture failed to load
-    return characterTextures[cacheKey] || null; // Return null or a default if loading failed
+    // If texture failed to load, try a different angle or return null
+    if (!characterTextures[cacheKey]) {
+        if (angle !== 'b') {
+            console.log(`Attempting to use back texture as fallback for ${characterId}_${angle}`);
+            return getCharacterTexture(characterId, 'b');
+        }
+        // If even the back texture is missing, try character 1 as fallback
+        if (characterId !== 1) {
+            console.log(`Attempting to use character 1 as fallback for missing character ${characterId}`);
+            return getCharacterTexture(1, angle);
+        }
+    }
+    return characterTextures[cacheKey];
 }
 
 // Preload default textures (e.g., back view) for smoother start?
@@ -428,8 +442,8 @@ socket.on('updateGameState', (state, serverPlayers, options) => {
                 console.log('Creating course with data:', options.courseData);
                 createCourse(options.courseData);
                 initializeRaceScene(players, options);
-                raceInitialized = true;
-            } else {
+    raceInitialized = true;
+    } else {
                 console.error('No course data received from server');
             }
         }
@@ -527,6 +541,29 @@ function addPlayerObject(playerId, playerData) {
 
         if (!texture) {
             console.error(`Cannot create sprite for player ${playerId}, texture not loaded/failed for char ${characterId}`);
+            // Create a colored rectangle as fallback
+            const fallbackMaterial = new THREE.SpriteMaterial({
+                color: 0xff0000,
+                transparent: true,
+                alphaTest: 0.1
+            });
+            const sprite = new THREE.Sprite(fallbackMaterial);
+            sprite.scale.set(playerSpriteScale, playerSpriteScale, playerSpriteScale);
+            sprite.userData = { characterId: characterId, currentAngleCode: initialAngleCode };
+            playerObjects[playerId] = sprite;
+            
+            if (playerData.position) {
+                sprite.position.set(
+                    playerData.position.x,
+                    playerData.position.y + playerSpriteScale / 2,
+                    playerData.position.z
+                );
+            } else {
+                sprite.position.set(0, playerSpriteScale / 2, 0);
+            }
+            scene.add(sprite);
+            console.warn(`Added fallback sprite for player ${playerId}`);
+            createPlayerVisualEffects(playerId, sprite);
             return;
         }
 
@@ -550,7 +587,7 @@ function addPlayerObject(playerId, playerData) {
             );
         } else {
             sprite.position.set(0, playerSpriteScale / 2, 0); // Restore original height
-            console.warn(`Player ${playerId} created without initial position.`);
+             console.warn(`Player ${playerId} created without initial position.`);
         }
         scene.add(sprite);
         console.log(`Added player sprite for: ${playerId} with char ${characterId} at position:`, playerData.position);
@@ -562,32 +599,32 @@ function addPlayerObject(playerId, playerData) {
 
 function createPlayerVisualEffects(playerId, sprite) {
     // Create Boost Flame
-    const boostMaterial = new THREE.SpriteMaterial({
-        map: flameTextures[0],
-        transparent: true,
-        alphaTest: 0.1,
+        const boostMaterial = new THREE.SpriteMaterial({
+            map: flameTextures[0],
+            transparent: true,
+            alphaTest: 0.1,
         depthTest: false,
         depthWrite: false
-    });
-    const boostFlame = new THREE.Sprite(boostMaterial);
+        });
+        const boostFlame = new THREE.Sprite(boostMaterial);
     boostFlame.scale.set(1.0, 1.0, 1.0);
     boostFlame.position.set(0, 0.01, 0);
-    boostFlame.visible = false;
+        boostFlame.visible = false;
     scene.add(boostFlame);
 
     // Create Drift Particles
     const particleCount = 40;
-    const particlesGeometry = new THREE.BufferGeometry();
+        const particlesGeometry = new THREE.BufferGeometry();
     const positions = new Float32Array(particleCount * 3);
-    particlesGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    const driftParticles = new THREE.Points(particlesGeometry, particlesMaterial);
-    driftParticles.position.copy(sprite.position);
+        particlesGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const driftParticles = new THREE.Points(particlesGeometry, particlesMaterial);
+        driftParticles.position.copy(sprite.position);
     driftParticles.position.y = 0.05;
-    driftParticles.visible = false;
+        driftParticles.visible = false;
     scene.add(driftParticles);
 
-    // Store visual components
-    playerVisuals[playerId] = { sprite, boostFlame, driftParticles };
+        // Store visual components
+        playerVisuals[playerId] = { sprite, boostFlame, driftParticles };
 }
 
 function removePlayerObject(playerId) {
@@ -621,9 +658,9 @@ function updatePlayerObjectTransform(playerId, position, rotation) {
     if (playerObject && position) {
         // For local player, update position directly.
         // For remote players, this is handled by lerping in the animate loop.
-        if (playerId === localPlayerId) {
+         if (playerId === localPlayerId) {
             playerObject.position.set(position.x, position.y + 0.5, position.z); // Reduced height
-        }
+         }
         // Rotation data is stored in `players[playerId].rotation`
         // The visual update based on rotation happens in `updatePlayerSpriteAngle`
     }
@@ -1898,7 +1935,7 @@ function triggerSparks(origin) {
     // Randomly select spark texture
     const randomTextureIndex = Math.floor(Math.random() * sparkTexturesLoaded.length);
     sparkSystem.material.map = sparkTexturesLoaded[randomTextureIndex];
-    sparkSystem.material.needsUpdate = true;
+    sparkSystem.material.needsUpdate = true; 
 }
 
 let lastSparkUpdate = Date.now();
@@ -1932,7 +1969,7 @@ function updateSparks() {
                     sparkParticles[i].life = 0;
                     positions[i * 3 + 1] = -10000;
                 } else {
-                    aliveCount++;
+                aliveCount++;
                 }
             }
         }
