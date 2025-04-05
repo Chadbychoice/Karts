@@ -305,9 +305,7 @@ function setupCharacterSelection() {
 
         const preview = document.createElement('img');
         preview.classList.add('character-preview');
-        // Use the same path handling logic as getCharacterTexture
-        const basePath = `${ASSET_BASE_URL}${char.baseSpritePath}`.replace(/\/+/g, '/');
-        const previewTexturePath = `${basePath}/${id}f.png`;
+        const previewTexturePath = `${ASSET_BASE_URL}/${char.baseSpritePath}/${id}f.png`;
         console.log(`[Loop ${index}] Preview image path:`, previewTexturePath);
         preview.src = previewTexturePath;
         preview.alt = char.name;
@@ -343,12 +341,12 @@ function updateCharacterSelectionHighlight() {
         } else {
             slot.classList.remove('selected');
             stopCharacterRotation(imgElement); // Pass the specific img element to stop its rotation
-             // Reset non-selected to front view
-             const charId = slot.dataset.characterId;
-             if (characters[charId] && imgElement) {
-                 imgElement.src = `${ASSET_BASE_URL}${characters[charId].baseSpritePath}f.png`;
-                 imgElement.onerror = () => { imgElement.style.backgroundColor = '#555'; }; // Reset error state too
-             }
+            // Reset non-selected to front view
+            const charId = slot.dataset.characterId;
+            if (characters[charId] && imgElement) {
+                imgElement.src = `${ASSET_BASE_URL}/${characters[charId].baseSpritePath}/${charId}f.png`;
+                imgElement.onerror = () => { imgElement.style.backgroundColor = '#555'; }; // Reset error state too
+            }
         }
     });
 }
