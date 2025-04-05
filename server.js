@@ -203,6 +203,7 @@ io.on('connection', (socket) => {
         Object.keys(gameState.players).length % courses[gameState.currentCourse].startPositions.length
     ];
     
+    // Initialize player in character selection state
     gameState.players[socket.id] = {
         id: socket.id,
         connected: true,
@@ -214,11 +215,13 @@ io.on('connection', (socket) => {
         lap: 1,
         nextCheckpoint: 0,
         finishedRace: false,
-        isSpectator: false // Ensure players are never spectators
+        isSpectator: false
     };
 
-    // Send current game state to the new player
-    socket.emit('updateGameState', gameState.state, gameState.players, {
+    // Send initial state to new player
+    socket.emit('updateGameState', 'character-selection', {
+        [socket.id]: gameState.players[socket.id]
+    }, {
         courseId: gameState.currentCourse,
         courseData: courses[gameState.currentCourse]
     });
@@ -230,13 +233,19 @@ io.on('connection', (socket) => {
             gameState.players[socket.id].characterId = characterId;
             gameState.readyPlayers.add(socket.id);
             
-            // Immediately start the player in racing state
+            // Put player directly into racing state
             gameState.players[socket.id].position = { ...startPos };
             gameState.players[socket.id].rotation = { ...courses[gameState.currentCourse].startRotation };
-            gameState.players[socket.id].isSpectator = false; // Ensure player is not a spectator
+            gameState.players[socket.id].isSpectator = false;
 
-            // Broadcast only this player's ready state
-            io.emit('updateGameState', gameState.state, {
+            // Send racing state to the player who just selected
+            socket.emit('updateGameState', 'racing', gameState.players, {
+                courseId: gameState.currentCourse,
+                courseData: courses[gameState.currentCourse]
+            });
+
+            // Broadcast this player's state to others
+            socket.broadcast.emit('updateGameState', 'racing', {
                 [socket.id]: gameState.players[socket.id]
             }, {
                 courseId: gameState.currentCourse,

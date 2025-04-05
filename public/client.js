@@ -16,6 +16,13 @@ const WEBSOCKET_URL = window.location.hostname === 'localhost'
     ? 'http://localhost:3000' 
     : 'https://karts-websocket.onrender.com';
 
+// Base URL for assets
+const ASSET_BASE_URL = window.location.hostname === 'localhost' 
+    ? '' 
+    : window.location.origin;
+
+console.log('Using base URL for assets:', ASSET_BASE_URL);
+
 console.log('Connecting to WebSocket server at:', WEBSOCKET_URL);
 
 // Configure Socket.IO client
@@ -105,28 +112,24 @@ const selectedCharacterNameElement = document.getElementById('selected-character
 
 // --- Character Data ---
 const characters = {
-    1: { name: "Turbo Hank", baseSpritePath: "/Sprites/characters/1/" },
-    2: { name: "Stella Vroom", baseSpritePath: "/Sprites/characters/2/" },
-    3: { name: "Bongo Blitz", baseSpritePath: "/Sprites/characters/3/" },
-    4: { name: "Krash Krawl", baseSpritePath: "/Sprites/characters/4/" },
-    5: { name: "Kara Krawl", baseSpritePath: "/Sprites/characters/5/" },
-    6: { name: "Freddy", baseSpritePath: "/Sprites/characters/6/" },
-    7: { name: "Laurette", baseSpritePath: "/Sprites/characters/7/" },
-    8: { name: "Fierry Farez", baseSpritePath: "/Sprites/characters/8/" }
+    1: { name: "Turbo Hank", baseSpritePath: "/Sprites/characters/1" },
+    2: { name: "Stella Vroom", baseSpritePath: "/Sprites/characters/2" },
+    3: { name: "Bongo Blitz", baseSpritePath: "/Sprites/characters/3" },
+    4: { name: "Krash Krawl", baseSpritePath: "/Sprites/characters/4" },
+    5: { name: "Kara Krawl", baseSpritePath: "/Sprites/characters/5" },
+    6: { name: "Freddy", baseSpritePath: "/Sprites/characters/6" },
+    7: { name: "Laurette", baseSpritePath: "/Sprites/characters/7" },
+    8: { name: "Fierry Farez", baseSpritePath: "/Sprites/characters/8" }
 };
 
 const characterSpriteAngles = ['f', 'fr', 'r', 'br', 'b', 'bl', 'l', 'fl'];
 // --- Texture Loading ---
 const textureLoader = new THREE.TextureLoader();
+textureLoader.crossOrigin = 'anonymous'; // Add this line to handle CORS
 const characterTextures = {}; // Cache for loaded textures { 'charId_angle': THREE.Texture }
 const flameTextures = [];
 const textures = {}; // <<< ADD Global object for course textures
 let particlesMaterial;
-
-// Add base URL handling for assets
-const BASE_URL = window.location.hostname === 'localhost' 
-    ? '' 
-    : 'https://karts-websocket.onrender.com';
 
 function preloadAssets() {
     console.log("Preloading assets...");
@@ -225,7 +228,7 @@ function getCharacterTexture(characterId, angle = 'b') {
             console.error(`Invalid characterId: ${characterId}`);
             return null;
         }
-        const texturePath = `${BASE_URL}${characterData.baseSpritePath}${angle}.png`;
+        const texturePath = `${ASSET_BASE_URL}${characterData.baseSpritePath}${angle}.png`;
         console.log(`Loading texture: ${texturePath}`); // Add logging for texture loading
         characterTextures[cacheKey] = textureLoader.load(
             texturePath,
@@ -294,7 +297,7 @@ function setupCharacterSelection() {
 
         const preview = document.createElement('img');
         preview.classList.add('character-preview');
-        const previewTexturePath = `${BASE_URL}${char.baseSpritePath}f.png`;
+        const previewTexturePath = `${ASSET_BASE_URL}${char.baseSpritePath}f.png`;
         console.log(`[Loop ${index}] Preview image path:`, previewTexturePath);
         preview.src = previewTexturePath;
         preview.alt = char.name;
@@ -334,7 +337,7 @@ function updateCharacterSelectionHighlight() {
              // Reset non-selected to front view
              const charId = slot.dataset.characterId;
              if (characters[charId] && imgElement) {
-                 imgElement.src = `${BASE_URL}${characters[charId].baseSpritePath}f.png`;
+                 imgElement.src = `${ASSET_BASE_URL}${characters[charId].baseSpritePath}f.png`;
                  imgElement.onerror = () => { imgElement.style.backgroundColor = '#555'; }; // Reset error state too
              }
         }
@@ -348,11 +351,11 @@ function startCharacterRotation(imgElement, characterData) {
     stopCharacterRotation(imgElement, intervalKey); // Stop existing interval for this element
 
     let currentAngleIndex = 0;
-    imgElement.src = `${BASE_URL}${characterData.baseSpritePath}${characterSpriteAngles[currentAngleIndex]}.png`;
+    imgElement.src = `${ASSET_BASE_URL}${characterData.baseSpritePath}${characterSpriteAngles[currentAngleIndex]}.png`;
 
     rotationIntervals[intervalKey] = setInterval(() => {
         currentAngleIndex = (currentAngleIndex + 1) % characterSpriteAngles.length;
-        const nextSrc = `${BASE_URL}${characterData.baseSpritePath}${characterSpriteAngles[currentAngleIndex]}.png`;
+        const nextSrc = `${ASSET_BASE_URL}${characterData.baseSpritePath}${characterSpriteAngles[currentAngleIndex]}.png`;
         imgElement.src = nextSrc;
         imgElement.onerror = () => {
              console.warn(`Sprite not found during rotation: ${imgElement.src}`);
