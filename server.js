@@ -97,7 +97,7 @@ app.get('/api/courses/:id', (req, res) => {
 
 // Game state
 const gameState = {
-    state: 'racing',
+    state: 'character-selection', // Start in character selection instead of racing
     players: {},
     readyPlayers: new Set(),
     currentCourse: 'test'
@@ -219,9 +219,7 @@ io.on('connection', (socket) => {
     };
 
     // Send initial state to new player
-    socket.emit('updateGameState', 'character-selection', {
-        [socket.id]: gameState.players[socket.id]
-    }, {
+    socket.emit('updateGameState', gameState.state, gameState.players, {
         courseId: gameState.currentCourse,
         courseData: courses[gameState.currentCourse]
     });
@@ -238,46 +236,40 @@ io.on('connection', (socket) => {
             gameState.players[socket.id].rotation = { ...courses[gameState.currentCourse].startRotation };
             gameState.players[socket.id].isSpectator = false;
 
-            // Send racing state to the player who just selected
-            socket.emit('updateGameState', 'racing', gameState.players, {
-                courseId: gameState.currentCourse,
-                courseData: courses[gameState.currentCourse]
-            });
+            // Update game state to racing if all players are ready
+            if (gameState.state !== 'racing') {
+                gameState.state = 'racing';
+                console.log('All players ready, starting race!');
+            }
 
-            // Broadcast this player's state to others
-            socket.broadcast.emit('updateGameState', 'racing', {
-                [socket.id]: gameState.players[socket.id]
-            }, {
+            // Send racing state to all players
+            io.emit('updateGameState', gameState.state, gameState.players, {
                 courseId: gameState.currentCourse,
                 courseData: courses[gameState.currentCourse]
             });
         }
     });
 
+    // Handle player state updates
     socket.on('playerUpdateState', (data) => {
         if (gameState.players[socket.id]) {
             // Update player state
             if (data.position) gameState.players[socket.id].position = data.position;
             if (data.rotation) gameState.players[socket.id].rotation = data.rotation;
             if (data.velocity !== undefined) gameState.players[socket.id].velocity = data.velocity;
-            
-            // Log player state for debugging
-            console.log(`Player ${socket.id} state:`, {
-                position: gameState.players[socket.id].position,
-                velocity: gameState.players[socket.id].velocity
-            });
-            
-            // Check for collisions after position update
+
+            // Broadcast update to all other players
+            socket.broadcast.emit('updatePlayerPosition', socket.id, data.position, data.rotation);
+
+            // Check for collisions
             const collisions = checkCollisions(gameState);
             if (collisions) {
-                console.log('Collisions detected:', collisions);
+                // Collision handling is already implemented in checkCollisions
             }
-            
-            // Broadcast to other players
-            socket.broadcast.emit('updatePlayerPosition', socket.id, data.position, data.rotation);
         }
     });
 
+    // Handle player effects state
     socket.on('playerDriftStateChange', (isDrifting, direction) => {
         if (gameState.players[socket.id]) {
             gameState.players[socket.id].isDrifting = isDrifting;
@@ -298,28 +290,35 @@ io.on('connection', (socket) => {
                 boostLevel: data.level
             });
 
-            // Schedule boost end
+            // Set timeout to end boost
             setTimeout(() => {
                 if (gameState.players[socket.id]) {
                     gameState.players[socket.id].isBoosting = false;
-                    gameState.players[socket.id].boostLevel = 0;
                     socket.broadcast.emit('updatePlayerEffectsState', socket.id, {
-                        isBoosting: false,
-                        boostLevel: 0
+                        isBoosting: false
                     });
                 }
             }, data.duration);
         }
     });
 
+    // Handle disconnection
     socket.on('disconnect', () => {
         console.log('Client disconnected:', socket.id);
-        gameState.readyPlayers.delete(socket.id);
-        delete gameState.players[socket.id];
-        io.emit('playerLeft', socket.id);
-        
-        // Keep game state in racing mode regardless of player count
-        gameState.state = 'racing';
+        if (gameState.players[socket.id]) {
+            // Remove player from ready set and game state
+            gameState.readyPlayers.delete(socket.id);
+            delete gameState.players[socket.id];
+
+            // Notify other players
+            socket.broadcast.emit('playerLeft', socket.id);
+
+            // Only reset game state if no players left AND we're in racing state
+            if (Object.keys(gameState.players).length === 0 && gameState.state === 'racing') {
+                gameState.state = 'character-selection';
+                gameState.readyPlayers.clear();
+            }
+        }
     });
 });
 
