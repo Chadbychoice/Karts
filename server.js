@@ -219,31 +219,34 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3000;
 const MAX_RETRIES = 5;
 const RETRY_DELAY = 1000;
+let currentPort = PORT;
 
 async function startServer(retryCount = 0) {
     try {
         await new Promise((resolve, reject) => {
-            server.listen(PORT, '0.0.0.0', () => {
-                console.log(`Server running on port ${PORT}`);
+            server.listen(currentPort, '0.0.0.0', () => {
+                console.log(`Server running on port ${currentPort}`);
                 console.log('Environment:', process.env.NODE_ENV);
                 resolve();
             }).on('error', (error) => {
-                if (error.code === 'EADDRINUSE' && retryCount < MAX_RETRIES) {
-                    console.log(`Port ${PORT} is busy, retrying in ${RETRY_DELAY}ms... (Attempt ${retryCount + 1}/${MAX_RETRIES})`);
-                    server.close();
-                    setTimeout(() => {
-                        startServer(retryCount + 1).catch(reject);
-                    }, RETRY_DELAY);
+                if (error.code === 'EADDRINUSE') {
+                    console.log(`Port ${currentPort} is busy, trying next port...`);
+                    currentPort++;
+                    if (retryCount < MAX_RETRIES) {
+                        setTimeout(() => {
+                            startServer(retryCount + 1).catch(reject);
+                        }, RETRY_DELAY);
+                    } else {
+                        reject(new Error(`Failed to find available port after ${MAX_RETRIES} attempts`));
+                    }
                 } else {
                     reject(error);
                 }
             });
         });
     } catch (error) {
-        if (retryCount >= MAX_RETRIES) {
-            console.error(`Failed to start server after ${MAX_RETRIES} attempts:`, error);
-            process.exit(1);
-        }
+        console.error('Server startup error:', error);
+        process.exit(1);
     }
 }
 

@@ -413,61 +413,26 @@ socket.on('disconnect', () => {
     location.reload(); // Simple way to reset
 });
 
-socket.on('updateGameState', (newGameState, serverPlayers, levelData) => {
-    console.log("DEBUG: socket.on('updateGameState') received!"); // Log: Handler entry
-    console.log("DEBUG: Received newGameState:", newGameState);
-    const oldGameState = currentGameState;
-    currentGameState = newGameState;
+socket.on('updateGameState', (state, serverPlayers, options) => {
+    console.log('Received game state update:', state);
+    currentGameState = state;
     players = serverPlayers;
 
-    characterSelectionOverlay.style.display = (currentGameState === 'character-selection') ? 'flex' : 'none';
-    waitingScreenOverlay.style.display = (currentGameState === 'waiting') ? 'flex' : 'none';
-
-    if (currentGameState === 'character-selection') {
-        console.log("DEBUG: Entered 'character-selection' block."); // Log: Correct block entered?
-        if (raceInitialized) {
-             cleanupRaceScene();
-        }
-        setupCharacterSelection();
-        document.addEventListener('keydown', handleCharacterSelectionInput);
-    } else {
-        console.log("DEBUG: Entered ELSE block (state is NOT 'character-selection')."); // Log: Incorrect block entered?
-        document.removeEventListener('keydown', handleCharacterSelectionInput);
-         stopCharacterRotation(null, null);
-    }
-
-    if (currentGameState === 'racing') {
-        // Initialize the race visuals ONLY if not already initialized
+    if (state === 'racing') {
         if (!raceInitialized) {
-            initializeRaceScene(players, levelData);
+            const courseData = options?.courseData || courseLayouts[1]; // Fallback to default course
+            initializeRaceScene(players, { courseData });
             raceInitialized = true;
-             // Start the animation loop ONLY when the race starts
-             if (!animationFrameId) {
-                 animate();
-             }
         }
-        // Ensure player objects are up-to-date even if race was already initialized
-        // (e.g., handling players joining/leaving during spectator mode before race starts)
-        updatePlayerObjects();
-    } else {
-         // If we are NOT racing, ensure the animation loop is stopped
-         // and the scene is cleaned up if it was initialized
-         if (raceInitialized) {
-             cleanupRaceScene();
-         }
+        // Update all player positions
+        Object.entries(players).forEach(([playerId, playerData]) => {
+            if (playerData.position && playerData.rotation) {
+                updatePlayerPosition(playerId, playerData.position, playerData.rotation);
+            }
+        });
+    } else if (state === 'character-selection') {
+        showCharacterSelection();
     }
-
-    // General update for player objects based on received data, relevant for spectator view too
-     if (currentGameState === 'waiting') {
-         // If waiting, we might still want to see the current race state
-          if (!raceInitialized) {
-            initializeRaceScene(players, levelData); // Initialize scene to view ongoing race
-            raceInitialized = true;
-            if (!animationFrameId) animate(); // Start loop for spectator view
-         }
-         updatePlayerObjects(); // Update visuals for spectator
-     }
-
 });
 
 socket.on('playerJoined', (playerId, playerData) => {
@@ -1241,82 +1206,68 @@ function createCourse(courseData) {
 }
 
 // --- Race Initialization ---
-function initializeRaceScene(initialPlayers, levelData) { // Add levelData parameter
+function initializeRaceScene(initialPlayers, levelData) {
     console.log("Initializing race scene...");
     if (raceInitialized) { 
-         cleanupRaceScene(); // Ensure cleanup runs if re-initializing
+        cleanupRaceScene();
     }
     raceInitialized = true;
-    isSceneInitialized = true; // Ensure this is set too
+    isSceneInitialized = true;
 
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87CEEB); // Restore Sky blue background
+    scene.background = new THREE.Color(0x87CEEB); // Light sky blue
 
-    // --- Lighting ---
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4); // Slightly increased ambient light
+    // Enhanced lighting setup
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); // Increased ambient light
     scene.add(ambientLight);
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(5, 10, 7);
-    scene.add(directionalLight);
-    renderer.shadowMap.enabled = true; // Ensure shadows are enabled
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    // --- Camera Setup ---
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0); // Increased intensity
+    directionalLight.position.set(50, 100, 50);
+    directionalLight.castShadow = true;
+    directionalLight.shadow.mapSize.width = 2048;
+    directionalLight.shadow.mapSize.height = 2048;
+    scene.add(directionalLight);
+
+    // Add a hemisphere light for better ambient lighting
+    const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+    scene.add(hemisphereLight);
+
+    // Camera setup
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 10, 15); // Default initial position
+    camera.position.set(0, 10, 15);
     camera.lookAt(0, 0, 0);
 
-    // --- Setup EffectComposer ---
+    // Enable shadows
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    // Setup post-processing
     composer = new EffectComposer(renderer);
     const renderPass = new RenderPass(scene, camera);
     composer.addPass(renderPass);
-    // Temporarily remove other passes for debugging
-    // Add Bloom and Output passes
-    // const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.4, 0.1, 0.85); // Adjusted threshold, strength
-    // composer.addPass(bloomPass);
-    // const outputPass = new OutputPass();
-    // composer.addPass(outputPass);
 
-    // --- Setup Resize Handling for this scene/composer instance ---
-    // Remove previous listener if any to avoid duplicates
-    window.removeEventListener('resize', handleResizeForComposer);
-    // Add new listener
-    window.addEventListener('resize', handleResizeForComposer);
-
-    // --- Load Course ---
-    // If levelData is provided, use it. Otherwise, use defaults.
-    if (levelData) {
-        console.log("Loading course from received level data:", levelData.name);
-        console.log("--> Calling createCourseFromData"); // <<< ADD LOG
-        createCourseFromData(levelData);
+    // Load course
+    if (levelData?.courseData) {
+        console.log("Loading course from received level data:", levelData.courseData.name);
+        createCourseFromData(levelData.courseData);
     } else {
-        console.log("No level data received, loading default course (Course 1)."); // Revert log
-        const courseId = 1; // Default course ID
-        let courseDataToLoad = courseLayouts[courseId]; // Fallback using old system
-        if (!courseDataToLoad) {
-             console.error(`FATAL: Default Course ID ${courseId} not found in layouts!`);
-             // Handle this critical error - maybe show an error message and stop?
-             courseDataToLoad = { // Provide a minimal fallback layout
-                 name: "Fallback Plane",
-                 planeSize: { width: 50, height: 50 },
-                 textureRepeat: { x: 5, y: 5 },
-                 //texture: '/textures/grass.png', // Use a known texture - Change path if needed
-                 roadTexturePath: '/textures/road.png', // Ensure this key exists for createCourse
-                 walls: []
-             };
-        }
-        console.log("--> Calling createCourse"); // <<< ADD LOG
-        createCourse(courseDataToLoad); // Call the OLD function for default/fallback
+        console.log("No level data received, loading default course.");
+        createCourse(courseLayouts[1]);
     }
 
-    // --- Add Initial Player Objects ---
+    // Add players
     console.log("Adding initial player objects:", initialPlayers);
-    updatePlayerObjects(); // Use the initialPlayers data passed from updateGameState
+    updatePlayerObjects();
     setupInitialCameraPosition();
     updateAllSpriteAngles();
 
-    // Initialize spark system after scene setup
+    // Initialize effects
     initializeSparkSystem();
+
+    // Start animation loop if not already running
+    if (!animationFrameId) {
+        animate();
+    }
 }
 
 // Define a resize handler function globally or make it accessible
@@ -1586,96 +1537,27 @@ function updateBoostFlame(playerId, now) {
 
 // NEW Function to create course from loaded data
 function createCourseFromData(courseData) {
-    if (!courseData || !courseData.terrain || !courseData.obstacles || !courseData.decorations) {
-        console.error('Invalid level data provided to createCourseFromData.');
-        return null;
+    if (!courseData) {
+        console.error('No course data provided to createCourseFromData.');
+        return createCourse(courseLayouts[1]); // Fallback to default course
     }
 
-    const course = {
-        terrain: [],
-        obstacles: [],
-        decorations: [],
-        checkpoints: courseData.checkpoints || [],
-        startPosition: courseData.startPosition || { x: 0, y: 1, z: 0 },
-        startRotation: courseData.startRotation || { y: 0 }
-    };
-
-    // Create terrain
-    courseData.terrain.forEach(terrainData => {
-        const terrain = createTerrainSection(
-            terrainData.type,
-            terrainData.x,
-            terrainData.y,
-            terrainData.z,
-            terrainData.width,
-            terrainData.length
-        );
-        if (terrain) {
-            course.terrain.push(terrain);
-        }
+    // Create course using available data
+    createCourse({
+        name: courseData.name || "Default Course",
+        planeSize: { width: 100, height: 200 },
+        roadTexturePath: 'textures/road.png',
+        textureRepeat: { x: 10, y: 20 },
+        walls: [
+            { type: 'box', size: { x: 1, y: 3, z: 200 }, position: { x: -50.5, y: 1.5, z: 0 } },
+            { type: 'box', size: { x: 1, y: 3, z: 200 }, position: { x: 50.5, y: 1.5, z: 0 } }
+        ],
+        startPositions: courseData.startPositions || [
+            { x: 0, z: 5 }, { x: 2, z: 5 }, { x: -2, z: 5 }, { x: 4, z: 5 }
+        ]
     });
 
-    // Create obstacles
-    courseData.obstacles.forEach(obstacleData => {
-        const obstacle = createObstacle(
-            obstacleData.type,
-            obstacleData.x,
-            obstacleData.y,
-            obstacleData.z,
-            obstacleData.width,
-            obstacleData.length
-        );
-        if (obstacle) {
-            course.obstacles.push(obstacle);
-        }
-    });
-
-    // Create decorations
-    courseData.decorations.forEach(decorationData => {
-        const decoration = createDecoration(
-            decorationData.type,
-            decorationData.x,
-            decorationData.y,
-            decorationData.z,
-            decorationData.rotation
-        );
-        if (decoration) {
-            course.decorations.push(decoration);
-        }
-    });
-
-    return course;
-}
-
-// Helper functions for course creation
-function createTerrainSection(type, x, y, z, width, length) {
-    // Implementation depends on your game engine
-    // This is a placeholder
-    return {
-        type,
-        position: { x, y, z },
-        dimensions: { width, length }
-    };
-}
-
-function createObstacle(type, x, y, z, width, length) {
-    // Implementation depends on your game engine
-    // This is a placeholder
-    return {
-        type,
-        position: { x, y, z },
-        dimensions: { width, length }
-    };
-}
-
-function createDecoration(type, x, y, z, rotation) {
-    // Implementation depends on your game engine
-    // This is a placeholder
-    return {
-        type,
-        position: { x, y, z },
-        rotation
-    };
+    return true;
 }
 
 // Function to clean up scene objects and state when race ends or resets
@@ -1864,23 +1746,27 @@ async function loadCourse(courseId) {
     }
 }
 
-// Update game state handler
-socket.on('updateGameState', async (state, players, options) => {
-    console.log('Received game state update:', state);
+// Add showCharacterSelection function
+function showCharacterSelection() {
+    characterSelectionOverlay.style.display = 'flex';
+    waitingScreenOverlay.style.display = 'none';
+    setupCharacterSelection();
+    document.addEventListener('keydown', handleCharacterSelectionInput);
+}
+
+// Fix updatePlayerPosition function
+function updatePlayerPosition(playerId, position, rotation) {
+    if (!players[playerId]) return;
     
-    if (state === 'racing' && options.courseData) {
-        const course = createCourseFromData(options.courseData);
-        if (course) {
-            await initializeRaceScene(course);
-            // Position all players
-            Object.entries(players).forEach(([playerId, playerData]) => {
-                updatePlayerPosition(playerId, playerData.position, playerData.rotation);
-            });
-        } else {
-            console.error('Failed to create course from data');
+    if (position) {
+        players[playerId].position = position;
+        if (playerObjects[playerId]) {
+            updatePlayerObjectTransform(playerId, position, rotation);
         }
-    } else if (state === 'character-selection') {
-        showCharacterSelection();
     }
-});
+    
+    if (rotation) {
+        players[playerId].rotation = rotation;
+    }
+}
 
