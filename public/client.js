@@ -1566,19 +1566,24 @@ function createCourseFromData(courseData) {
         return createCourse(courseLayouts[1]); // Fallback to default course
     }
 
-    // Create course using available data
+    console.log('Creating course from data:', courseData);
+
+    // Create course using the provided data
     createCourse({
-        name: courseData.name || "Default Course",
-        planeSize: { width: 100, height: 200 },
-        roadTexturePath: 'textures/road.png',
-        textureRepeat: { x: 10, y: 20 },
-        walls: [
+        name: courseData.name,
+        planeSize: courseData.planeSize || { width: 100, height: 200 },
+        roadTexturePath: courseData.roadTexturePath || '/textures/road.png',
+        textureRepeat: courseData.textureRepeat || { x: 10, y: 20 },
+        walls: courseData.walls || [
             { type: 'box', size: { x: 1, y: 3, z: 200 }, position: { x: -50.5, y: 1.5, z: 0 } },
             { type: 'box', size: { x: 1, y: 3, z: 200 }, position: { x: 50.5, y: 1.5, z: 0 } }
         ],
         startPositions: courseData.startPositions || [
             { x: 0, z: 5 }, { x: 2, z: 5 }, { x: -2, z: 5 }, { x: 4, z: 5 }
-        ]
+        ],
+        terrain: courseData.terrain || [],
+        obstacles: courseData.obstacles || [],
+        decorations: courseData.decorations || []
     });
 
     return true;
@@ -1640,10 +1645,22 @@ const SPARK_LIFESPAN = 300; // ms
 
 // --- Collision Handling ---
 socket.on('collisionDetected', ({ playerA_id, playerB_id, collisionPoint }) => {
-    console.log(`Collision event received: ${playerA_id} vs ${playerB_id} at`, collisionPoint); // <<< Enable log
-    if (raceInitialized && sparkSystem) {
-        console.log("--> Triggering sparks!"); // <<< Add log
-        triggerSparks(collisionPoint);
+    console.log('Collision detected between', playerA_id, 'and', playerB_id);
+    
+    // Convert collisionPoint to THREE.Vector3
+    const collisionVec = new THREE.Vector3(
+        collisionPoint.x,
+        collisionPoint.y + 1, // Raise sparks slightly above ground
+        collisionPoint.z
+    );
+    
+    // Trigger spark effect
+    triggerSparks(collisionVec);
+    
+    // Add screen shake for local player if involved
+    if (playerA_id === localPlayerId || playerB_id === localPlayerId) {
+        // TODO: Add screen shake effect
+        console.log('Local player involved in collision!');
     }
 });
 
@@ -1692,34 +1709,49 @@ function initializeSparkSystem() {
 }
 
 function triggerSparks(origin) {
-    if (!sparkSystem || sparkTexturesLoaded.length === 0) return;
+    if (!sparkSystem || sparkTexturesLoaded.length === 0) {
+        console.warn('Spark system not initialized');
+        return;
+    }
+
+    console.log('Triggering sparks at', origin);
+    sparkSystem.visible = true;
 
     let sparksCreated = 0;
-    const numSparksToCreate = 8; // As requested
+    const numSparksToCreate = 12; // Increased number of sparks
 
     for (let i = 0; i < MAX_SPARKS && sparksCreated < numSparksToCreate; i++) {
-        if (sparkParticles[i].life <= 0) { // Find a dead particle to reuse
+        if (sparkParticles[i].life <= 0) {
             sparkParticles[i].life = SPARK_LIFESPAN;
-            sparkParticles[i].textureIndex = Math.floor(Math.random() * sparkTexturesLoaded.length); // Random texture
-            // Initial position at collision point
-            sparkSystem.geometry.attributes.position.setXYZ(i, origin.x, origin.y, origin.z);
-            // Random outward velocity
+            sparkParticles[i].textureIndex = Math.floor(Math.random() * sparkTexturesLoaded.length);
+            
+            // Set position at collision point
+            sparkSystem.geometry.attributes.position.setXYZ(
+                i,
+                origin.x,
+                origin.y,
+                origin.z
+            );
+            
+            // Random outward velocity with more vertical spread
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 0.2 + Math.random() * 0.3;
             sparkParticles[i].velocity.set(
-                (Math.random() - 0.5),
-                (Math.random() - 0.5),
-                (Math.random() - 0.5)
-            ).normalize().multiplyScalar(0.1 + Math.random() * 0.1); // Random speed
+                Math.cos(angle) * speed,
+                0.1 + Math.random() * 0.4, // More upward velocity
+                Math.sin(angle) * speed
+            );
 
             sparksCreated++;
         }
     }
 
-    sparkSystem.visible = true; // Make sure system is visible if sparks are active
     sparkSystem.geometry.attributes.position.needsUpdate = true;
-    // NOTE: Changing texture per particle needs ShaderMaterial, this won't work with PointsMaterial directly.
-    // We can set the overall texture randomly for now as a placeholder.
-    sparkSystem.material.map = sparkTexturesLoaded[Math.floor(Math.random() * sparkTexturesLoaded.length)];
-    sparkSystem.material.needsUpdate = true; 
+    
+    // Randomly select spark texture
+    const randomTextureIndex = Math.floor(Math.random() * sparkTexturesLoaded.length);
+    sparkSystem.material.map = sparkTexturesLoaded[randomTextureIndex];
+    sparkSystem.material.needsUpdate = true;
 }
 
 let lastSparkUpdate = Date.now();

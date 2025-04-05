@@ -16,6 +16,9 @@ const courses = {
     1: {
         id: 1,
         name: "Test Track",
+        planeSize: { width: 100, height: 200 },
+        roadTexturePath: '/textures/road.png',
+        textureRepeat: { x: 10, y: 20 },
         checkpoints: [
             { x: -40, y: 0, z: 0 },
             { x: 40, y: 0, z: 0 },
@@ -41,6 +44,10 @@ const courses = {
         decorations: [
             { type: 'startline', x: 0, y: 0.1, z: 5, rotation: { y: 0 } },
             { type: 'finishline', x: 0, y: 0.1, z: 75, rotation: { y: 0 } }
+        ],
+        // Add collision detection boundaries
+        collisionBoundaries: [
+            { type: 'box', min: { x: -50, y: 0, z: -100 }, max: { x: 50, y: 3, z: 100 } }
         ]
     }
 };
@@ -94,6 +101,37 @@ const gameState = {
     readyPlayers: new Set(),
     currentCourse: 1
 };
+
+// Add collision detection
+function checkCollisions(players) {
+    const playerIds = Object.keys(players);
+    for (let i = 0; i < playerIds.length; i++) {
+        for (let j = i + 1; j < playerIds.length; j++) {
+            const playerA = players[playerIds[i]];
+            const playerB = players[playerIds[j]];
+            
+            // Simple sphere collision detection
+            const dx = playerA.position.x - playerB.position.x;
+            const dz = playerA.position.z - playerB.position.z;
+            const distance = Math.sqrt(dx * dx + dz * dz);
+            
+            if (distance < 2) { // Collision threshold
+                const collisionPoint = {
+                    x: (playerA.position.x + playerB.position.x) / 2,
+                    y: (playerA.position.y + playerB.position.y) / 2,
+                    z: (playerA.position.z + playerB.position.z) / 2
+                };
+                
+                // Emit collision event to all clients
+                io.emit('collisionDetected', {
+                    playerA_id: playerIds[i],
+                    playerB_id: playerIds[j],
+                    collisionPoint
+                });
+            }
+        }
+    }
+}
 
 // Socket.IO event handlers
 io.on('connection', (socket) => {
@@ -159,6 +197,9 @@ io.on('connection', (socket) => {
             if (data.position) gameState.players[socket.id].position = data.position;
             if (data.rotation) gameState.players[socket.id].rotation = data.rotation;
             if (data.velocity !== undefined) gameState.players[socket.id].velocity = data.velocity;
+            
+            // Check for collisions after position update
+            checkCollisions(gameState.players);
             
             // Broadcast to other players
             socket.broadcast.emit('updatePlayerPosition', socket.id, data.position, data.rotation);
