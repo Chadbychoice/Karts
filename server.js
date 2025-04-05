@@ -70,6 +70,11 @@ const io = new Server(server, {
 app.use(express.json());
 app.use(express.static(join(__dirname, 'public')));
 
+// Editor route
+app.get('/editor', (req, res) => {
+    res.sendFile(join(__dirname, 'public', 'editor.html'));
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
     res.status(200).json({ 
@@ -192,7 +197,7 @@ function checkCollisions(gameState) {
 // Socket.IO event handlers
 io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
-    
+
     // Add player to game state
     gameState.players[socket.id] = {
         id: socket.id,
@@ -291,7 +296,7 @@ io.on('connection', (socket) => {
                 isBoosting: true,
                 boostLevel: data.level
             });
-            
+
             // Schedule boost end
             setTimeout(() => {
                 if (gameState.players[socket.id]) {
