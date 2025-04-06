@@ -12,6 +12,11 @@ const __dirname = dirname(__filename);
 const app = express();
 const server = createServer(app);
 
+// <<< ADDED: Set Keep-Alive Timeouts >>>
+const KEEP_ALIVE_TIMEOUT_MS = 120000; // 120 seconds based on Render suggestion
+server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
+server.headersTimeout = KEEP_ALIVE_TIMEOUT_MS + 5000; // Standard practice: slightly longer than keepAlive
+
 const COURSES_DIR = join(__dirname, 'courses');
 
 // Define mapping and constants (could be moved to a config file later)
@@ -354,7 +359,7 @@ function checkCollisions(gameState) {
                     playerA.position.z += nz * separationForce;
                     playerB.position.x -= nx * separationForce;
                     playerB.position.z -= nz * separationForce;
-                } else {
+    } else {
                     console.warn("Skipping position separation due to NaN values.");
                 }
                 
@@ -480,19 +485,32 @@ io.on('connection', (socket) => {
     // Handle player state updates
     socket.on('playerUpdateState', (data) => {
         if (gameState.players[socket.id]) {
-            // Update player state
-            if (data.position) gameState.players[socket.id].position = data.position;
-            if (data.rotation) gameState.players[socket.id].rotation = data.rotation;
-            if (data.velocity !== undefined) gameState.players[socket.id].velocity = data.velocity;
+            // <<< ADDED: Log received data >>>
+            // console.log(`Received playerUpdateState from ${socket.id}:`, JSON.stringify(data)); // Verbose: Log all data
+            if (data.position && (isNaN(data.position.x) || isNaN(data.position.z))) {
+                 console.error(`!!! Received NaN position from ${socket.id}:`, data.position);
+            } else {
+                 // Apply valid updates
+                 if (data.position) gameState.players[socket.id].position = data.position;
+                 if (data.rotation) gameState.players[socket.id].rotation = data.rotation;
+                 if (data.velocity !== undefined) gameState.players[socket.id].velocity = data.velocity;
 
-            // Broadcast update to all other players
-            socket.broadcast.emit('updatePlayerPosition', socket.id, data.position, data.rotation);
-
-            // Check for collisions
-            const collisions = checkCollisions(gameState);
-            if (collisions) {
-                // Collision handling is already implemented in checkCollisions
+                 // Broadcast update to all other players only if position is valid
+                 if(data.position) {
+                      socket.broadcast.emit('updatePlayerPosition', socket.id, data.position, data.rotation);
+                 }
             }
+           
+            // Check for collisions (only if position was validly updated or already valid)
+             const player = gameState.players[socket.id];
+             if(player.position && !isNaN(player.position.x) && !isNaN(player.position.z)) {
+                  const collisions = checkCollisions(gameState);
+                  // Collision handling already happens inside checkCollisions
+             } else {
+                  console.warn(`Skipping collision check after update for ${socket.id} due to invalid position state.`);
+             }
+        } else {
+             console.warn(`Received playerUpdateState for unknown player: ${socket.id}`);
         }
     });
 
@@ -599,7 +617,7 @@ app.use((err, req, res, next) => {
 });
 
 // Start server with retry logic
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000; // Render provides PORT env var, use 3000 as local fallback
 const MAX_RETRIES = 5;
 const RETRY_DELAY = 1000;
 let currentPort = PORT;
@@ -607,14 +625,20 @@ let currentPort = PORT;
 async function startServer(retryCount = 0) {
     try {
         await new Promise((resolve, reject) => {
+             // <<< CHANGED: Bind explicitly to 0.0.0.0 for Render >>>
             server.listen(currentPort, '0.0.0.0', () => {
-                console.log(`Server running on port ${currentPort}`);
+                console.log(`Server running on http://0.0.0.0:${currentPort}`); // Log actual binding
                 console.log('Environment:', process.env.NODE_ENV);
                 resolve();
             }).on('error', (error) => {
                 if (error.code === 'EADDRINUSE') {
                     console.log(`Port ${currentPort} is busy, trying next port...`);
-                    currentPort++;
+                    // Only increment port if NOT using Render's provided PORT
+                    if (currentPort === PORT && process.env.PORT) {
+                        reject(new Error(`Render specified port ${PORT} is already in use.`));
+                        return;
+                    }
+                    currentPort++; // Try next port only for local fallback
                     if (retryCount < MAX_RETRIES) {
                         setTimeout(() => {
                             startServer(retryCount + 1).catch(reject);
