@@ -14,6 +14,141 @@ const server = createServer(app);
 
 const COURSES_DIR = join(__dirname, 'courses');
 
+// Define mapping and constants (could be moved to a config file later)
+const EDITOR_TILE_SIZE = 1; // Assuming 1 editor tile = 1 world unit for now
+const EDITOR_GRID_WIDTH = 40; // Match editor.js (needed for centering?)
+const EDITOR_GRID_HEIGHT = 30; // Match editor.js
+
+const editorToClientTypeMap = {
+    // Tiles -> Terrain/Road
+    grass: { clientType: 'grass', category: 'terrain' },
+    mud: { clientType: 'mud', category: 'obstacles' }, // Mud is an obstacle
+    road_v: { clientType: 'road', category: 'road' },
+    road_h: { clientType: 'road', category: 'road' },
+    road_ne: { clientType: 'road', category: 'road' }, 
+    road_nw: { clientType: 'road', category: 'road' },
+    road_se: { clientType: 'road', category: 'road' },
+    road_sw: { clientType: 'road', category: 'road' },
+    startfinish: { clientType: 'startfinishline', category: 'decorations' }, // Start/Finish is a decoration
+    // Elements -> Obstacles/Decorations
+    startgate: { clientType: 'startgate', category: 'decorations' },
+    blueblock: { clientType: 'blueblock', category: 'obstacles' },
+    greenblock: { clientType: 'greenblock', category: 'obstacles' },
+    darkgreenblock: { clientType: 'darkgreenblock', category: 'obstacles' },
+    redblock: { clientType: 'redblock', category: 'obstacles' },
+    yellowblock: { clientType: 'yellowblock', category: 'obstacles' },
+    tiresred: { clientType: 'tiresred', category: 'obstacles' },
+    tireswhite: { clientType: 'tireswhite', category: 'obstacles' }
+    // Add mappings for any other editor types
+};
+
+// --- Translation Function ---
+function translateEditorDataToCourseData(editorData) {
+    if (!editorData || !Array.isArray(editorData.tiles)) {
+        console.error("Invalid editor data structure passed to translation.", editorData);
+        return null; // Or return a default structure
+    }
+
+    const courseData = {
+        id: editorData.name, // Use the name as the ID
+        name: editorData.name,
+        startPositions: [], // Will be derived from startPosition
+        startRotation: { y: 0 }, // Default, can be derived from startPosition direction
+        terrain: [],
+        road: [],
+        obstacles: [],
+        decorations: [],
+        checkpoints: [] // Checkpoints not handled by editor yet
+    };
+
+    // --- Translate Start Position --- 
+    if (editorData.startPosition) {
+        // TODO: Define multiple start positions based on the editor's single point and direction?
+        // For now, just use the single point.
+        const startX = (editorData.startPosition.x - EDITOR_GRID_WIDTH / 2) * EDITOR_TILE_SIZE;
+        const startZ = (editorData.startPosition.y - EDITOR_GRID_HEIGHT / 2) * EDITOR_TILE_SIZE;
+        courseData.startPositions.push({ x: startX, y: 0, z: startZ });
+        // Convert direction (0=N, 1=E, 2=S, 3=W) to rotation around Y
+        // Assuming N=0, E= -PI/2, S = PI, W = PI/2 (adjust if camera is different)
+        if (editorData.startPosition.direction === 1) courseData.startRotation.y = -Math.PI / 2;
+        else if (editorData.startPosition.direction === 2) courseData.startRotation.y = Math.PI;
+        else if (editorData.startPosition.direction === 3) courseData.startRotation.y = Math.PI / 2;
+        else courseData.startRotation.y = 0; // Default North
+    } else {
+        // Default start position if missing
+        courseData.startPositions.push({ x: 0, y: 0, z: 0 });
+    }
+
+    // --- Translate Tiles --- 
+    editorData.tiles.forEach(tile => {
+        const mapping = editorToClientTypeMap[tile.type];
+        if (!mapping) {
+            console.warn(`No mapping found for editor tile type: ${tile.type}`);
+            // Default to grass terrain if unknown
+            if (!editorToClientTypeMap.grass) return; // Prevent error if grass is also missing
+             courseData.terrain.push({
+                type: editorToClientTypeMap.grass.clientType,
+                x: (tile.x - EDITOR_GRID_WIDTH / 2) * EDITOR_TILE_SIZE,
+                y: 0, // Assuming flat ground for tiles
+                z: (tile.y - EDITOR_GRID_HEIGHT / 2) * EDITOR_TILE_SIZE,
+                width: EDITOR_TILE_SIZE,
+                length: EDITOR_TILE_SIZE
+            });
+            return;
+        }
+
+        const item = {
+            type: mapping.clientType,
+            // Convert grid coords (origin top-left) to world coords (origin center)
+            x: (tile.x - EDITOR_GRID_WIDTH / 2) * EDITOR_TILE_SIZE,
+            y: 0, // Assuming flat ground for tiles
+            z: (tile.y - EDITOR_GRID_HEIGHT / 2) * EDITOR_TILE_SIZE,
+            width: EDITOR_TILE_SIZE,
+            length: EDITOR_TILE_SIZE
+            // Rotation might be needed for road variants?
+        };
+        
+        // Assign to the correct category
+        if (mapping.category === 'terrain') courseData.terrain.push(item);
+        else if (mapping.category === 'road') courseData.road.push(item);
+        else if (mapping.category === 'obstacles') courseData.obstacles.push(item);
+        else if (mapping.category === 'decorations') courseData.decorations.push(item);
+        else console.warn(`Unknown category '${mapping.category}' for type ${tile.type}`);
+    });
+
+    // --- Translate Elements --- 
+     if (Array.isArray(editorData.elements)) { // Check if elements array exists
+        editorData.elements.forEach(element => {
+            const mapping = editorToClientTypeMap[element.type];
+            if (!mapping) {
+                console.warn(`No mapping found for editor element type: ${element.type}`);
+                return;
+            }
+
+            const item = {
+                type: mapping.clientType,
+                x: (element.x - EDITOR_GRID_WIDTH / 2) * EDITOR_TILE_SIZE,
+                y: 0, // Elements are placed on the ground
+                z: (element.y - EDITOR_GRID_HEIGHT / 2) * EDITOR_TILE_SIZE,
+                width: EDITOR_TILE_SIZE, // Default size, maybe adjust per type?
+                length: EDITOR_TILE_SIZE,
+                rotation: element.rotation || { y: 0 } // Use saved rotation or default
+            };
+
+            if (mapping.category === 'obstacles') courseData.obstacles.push(item);
+            else if (mapping.category === 'decorations') courseData.decorations.push(item);
+            else console.warn(`Element type ${element.type} mapped to invalid category ${mapping.category}`);
+        });
+     } else {
+          console.log(`Course ${editorData.name} has no elements array.`);
+     }
+
+    console.log(`Translated course ${courseData.name}: T:${courseData.terrain.length}, R:${courseData.road.length}, O:${courseData.obstacles.length}, D:${courseData.decorations.length}`);
+    return courseData;
+}
+
+// --- End Translation Function ---
+
 // Course data (Load existing courses on startup)
 let courses = {};
 
@@ -26,11 +161,17 @@ async function loadCourses() {
                 const filePath = join(COURSES_DIR, file);
                 const courseId = basename(file, '.json');
                 try {
-                    const data = await fs.readFile(filePath, 'utf-8');
-                    courses[courseId] = JSON.parse(data);
-                    console.log(`Loaded course: ${courseId}`);
+                    const rawData = await fs.readFile(filePath, 'utf-8');
+                    const editorData = JSON.parse(rawData);
+                    const translatedData = translateEditorDataToCourseData(editorData);
+                    if (translatedData) {
+                        courses[courseId] = translatedData; // Store translated data
+                        console.log(`Loaded and translated course: ${courseId}`);
+                    } else {
+                         console.error(`Failed to translate course data for ${file}`);
+                    }
                 } catch (parseError) {
-                    console.error(`Error parsing course file ${file}:`, parseError);
+                    console.error(`Error parsing or translating course file ${file}:`, parseError);
                 }
             }
         }
@@ -61,6 +202,32 @@ async function loadCourses() {
             obstacles: [], decorations: [], checkpoints: []
         };
         console.log("Created default 'test' course.");
+    }
+    // Ensure 'test' course exists if nothing else loaded (create a default translated structure)
+    if (Object.keys(courses).length === 0 || !courses['test']) {
+        console.warn("No valid courses loaded or 'test' missing, creating default.");
+         const defaultEditorData = {
+            name: 'test',
+            startPosition: { x: EDITOR_GRID_WIDTH / 2, y: EDITOR_GRID_HEIGHT - 2, direction: 0 },
+            tiles: Array.from({ length: EDITOR_GRID_WIDTH * EDITOR_GRID_HEIGHT }, (_, i) => ({
+                x: i % EDITOR_GRID_WIDTH,
+                y: Math.floor(i / EDITOR_GRID_WIDTH),
+                type: 'grass'
+            })),
+            elements: []
+        };
+        const defaultTranslated = translateEditorDataToCourseData(defaultEditorData);
+         if (defaultTranslated) {
+             courses['test'] = defaultTranslated;
+             console.log("Created default 'test' course from translated structure.");
+         } else {
+              console.error("CRITICAL: Failed to create default translated 'test' course!");
+               // If even default fails, create a super minimal fallback
+               courses['test'] = {
+                  id: 'test', name: 'Minimal Fallback', startPositions: [{x:0,y:0,z:0}], startRotation: {y:0},
+                  terrain: [{type:'grass', x:0, y:0, z:0, width: 20, length: 20}], road:[], obstacles:[], decorations:[], checkpoints:[]
+               };
+         }
     }
 }
 
@@ -129,24 +296,39 @@ function checkCollisions(gameState) {
             const playerA = players[i];
             const playerB = players[j];
             
-            // Skip if either player doesn't have a position
-            if (!playerA?.position || !playerB?.position) {
-                console.log('Skipping collision check - missing position data');
+            // --- ADDED: Stricter Validation --- 
+            if (!playerA || !playerB) {
+                 console.warn('Skipping collision check - player object missing');
+                 continue;
+            }
+            if (!playerA.position || typeof playerA.position.x !== 'number' || typeof playerA.position.z !== 'number' || isNaN(playerA.position.x) || isNaN(playerA.position.z)) {
+                console.warn(`Skipping collision check - Invalid position for player A (${playerA.id}):`, playerA.position);
                 continue;
             }
+             if (!playerB.position || typeof playerB.position.x !== 'number' || typeof playerB.position.z !== 'number' || isNaN(playerB.position.x) || isNaN(playerB.position.z)) {
+                console.warn(`Skipping collision check - Invalid position for player B (${playerB.id}):`, playerB.position);
+                continue;
+            }
+            // --- END ADDED Validation ---
             
             // Calculate distance between players
             const dx = playerA.position.x - playerB.position.x;
             const dz = playerA.position.z - playerB.position.z;
-            const distance = Math.sqrt(dx * dx + dz * dz);
+            // Add check before sqrt
+            const distanceSquared = dx * dx + dz * dz;
+            if (isNaN(distanceSquared) || distanceSquared < 0) {
+                 console.warn(`Skipping collision - Invalid distanceSquared (${distanceSquared}) between ${playerA.id} and ${playerB.id}`);
+                 continue;
+            }
+            const distance = Math.sqrt(distanceSquared);
             
-            // Log distance for debugging
-            console.log(`Distance between players ${playerA.id} and ${playerB.id}: ${distance}`);
+            // Log distance for debugging (only if valid)
+            // console.log(`Distance between players ${playerA.id} and ${playerB.id}: ${distance}`); // Reduce verbose logging
             
             // Collision radius (sum of both kart radii)
             const collisionThreshold = 2.5; // Adjusted for better detection
             
-            if (distance < collisionThreshold) {
+            if (distance < collisionThreshold && distance > 0) { // Add distance > 0 check
                 console.log(`Collision detected! Distance: ${distance}`);
                 
                 // Calculate collision point (midpoint between players)
@@ -166,24 +348,29 @@ function checkCollisions(gameState) {
                 // Strong immediate separation to prevent passing through
                 const separationForce = overlap * 3.0;
                 
-                // Update positions with strong separation
-                playerA.position.x += nx * separationForce;
-                playerA.position.z += nz * separationForce;
-                playerB.position.x -= nx * separationForce;
-                playerB.position.z -= nz * separationForce;
+                // Ensure separation doesn't introduce NaN
+                if (!isNaN(nx) && !isNaN(nz) && !isNaN(separationForce)) {
+                    playerA.position.x += nx * separationForce;
+                    playerA.position.z += nz * separationForce;
+                    playerB.position.x -= nx * separationForce;
+                    playerB.position.z -= nz * separationForce;
+                } else {
+                    console.warn("Skipping position separation due to NaN values.");
+                }
                 
-                // Calculate relative velocity
-                const relativeVelocity = Math.abs((playerA.velocity || 0) - (playerB.velocity || 0));
-                const velocityFactor = Math.min(Math.max(relativeVelocity, 0.3), 1.0);
-                
-                // Exchange velocities with dampening
+                // Ensure velocity exchange doesn't introduce NaN
                 const restitution = 0.8;
                 const tempVel = playerA.velocity || 0;
-                playerA.velocity = (playerB.velocity || 0) * restitution;
-                playerB.velocity = tempVel * restitution;
+                const playerBVel = playerB.velocity || 0;
+                if (!isNaN(tempVel) && !isNaN(playerBVel)) {
+                    playerA.velocity = playerBVel * restitution;
+                    playerB.velocity = tempVel * restitution;
+                } else {
+                     console.warn("Skipping velocity exchange due to NaN values.");
+                }
                 
                 // Add some sideways velocity for more dynamic collisions
-                const sideForce = relativeVelocity * 0.5;
+                const sideForce = Math.abs((playerA.velocity || 0) - (playerB.velocity || 0)) * 0.5;
                 playerA.sideVelocity = (Math.random() - 0.5) * sideForce;
                 playerB.sideVelocity = (Math.random() - 0.5) * sideForce;
                 
@@ -192,8 +379,8 @@ function checkCollisions(gameState) {
                     playerA_id: playerA.id,
                     playerB_id: playerB.id,
                     collisionPoint: collisionPoint,
-                    intensity: velocityFactor,
-                    sparkRange: Math.min(relativeVelocity * 0.8, 2.0)
+                    intensity: Math.min(Math.max(Math.abs((playerA.velocity || 0) - (playerB.velocity || 0)) / 2, 0.3), 1.0),
+                    sparkRange: Math.min(Math.max(Math.abs((playerA.velocity || 0) - (playerB.velocity || 0)) * 0.8, 0), 2.0)
                 };
                 
                 // Log collision details
@@ -364,7 +551,6 @@ io.on('connection', (socket) => {
     // Handle Level Saving from Editor
     socket.on('editorSaveLevel', async ({ name, data }) => {
         console.log(`Received save request for level: ${name}`);
-        // Basic sanitization: allow letters, numbers, underscore, hyphen
         const safeBaseName = name.replace(/[^a-zA-Z0-9_\-]/g, '');
         if (!safeBaseName) {
             console.error("Invalid or empty course name received after sanitization.");
@@ -375,13 +561,25 @@ io.on('connection', (socket) => {
         const filename = `${safeBaseName}.json`;
         const filePath = join(COURSES_DIR, filename);
 
+        // --- ADDED: Translate before saving --- 
+        const translatedData = translateEditorDataToCourseData(data);
+        if (!translatedData) {
+             console.error("Failed to translate course data before saving.");
+             socket.emit('editorSaveConfirm', { success: false, message: 'Server error translating data.' });
+             return;
+        }
+        // Set the ID within the translated data before saving
+        translatedData.id = safeBaseName;
+        // --- End Translation Add ---
+
         try {
-            await fs.mkdir(COURSES_DIR, { recursive: true });
-            await fs.writeFile(filePath, JSON.stringify(data, null, 2));
-            console.log(`Successfully saved course to ${filePath}`);
+            await fs.mkdir(COURSES_DIR, { recursive: true }); 
+            // Save the ORIGINAL editor data, NOT the translated data, to keep editor compatibility
+            await fs.writeFile(filePath, JSON.stringify(data, null, 2)); 
+            console.log(`Successfully saved ORIGINAL editor course data to ${filePath}`);
             
-            // Update in-memory courses object
-            courses[safeBaseName] = data; 
+            // Update in-memory courses object with the TRANSLATED data
+            courses[safeBaseName] = translatedData; 
             
             socket.emit('editorSaveConfirm', { success: true, name: safeBaseName });
         } catch (error) {
