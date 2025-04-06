@@ -1395,10 +1395,11 @@ function createCourse(courseData) {
         return editorTileGrid.find(t => t.x === x && t.y === y);
     }
     
-    function addStripe(x, z, angle) { // <<< REMOVED flipped parameter
-        // <<< FIXED: Select texture based on angle >>>
+    function addStripe(x, z, angle) { 
+        // <<< SWAPPED Texture Logic: Select texture based on angle >>>
         const isHorizontal = (angle === 0);
-        const stripeTextureKey = isHorizontal ? '/textures/stripedline.png' : '/textures/stripedlineflip.png';
+        // Use flip for horizontal (angle 0), regular for vertical (angle PI/2)
+        const stripeTextureKey = isHorizontal ? '/textures/stripedlineflip.png' : '/textures/stripedline.png'; 
         
         const stripeTexture = textures[stripeTextureKey];
         if (!stripeTexture) {
