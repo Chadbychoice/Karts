@@ -1376,7 +1376,7 @@ function createCourse(courseData) {
         // <<< REMOVED 'startgate'
     ]);
     // <<< FIXED: Use fixed world sizes for sprites, not undefined EDITOR_TILE_SIZE >>>
-    const obstacleSpriteScale = 8; // <<< REDUCED scale significantly
+    const obstacleSpriteScale = 4; // <<< REDUCED scale further
     const decorationSpriteScale = 25; // Base scale for decoration sprites (adjust as needed)
 
     // Add terrain elements first (lowest layer)
@@ -1471,8 +1471,8 @@ function createCourse(courseData) {
             });
             obstacleObject = new THREE.Sprite(material);
             obstacleObject.scale.set(obstacleSpriteScale, obstacleSpriteScale, obstacleSpriteScale);
-            // <<< FIXED: Position sprite origin AT the ground offset >>>
-            obstacleObject.position.set(obstacle.x, Y_OFFSET_OBSTACLE, obstacle.z);
+            // <<< FIXED: Position sprite so BOTTOM is at ground offset >>>
+            obstacleObject.position.set(obstacle.x, Y_OFFSET_OBSTACLE + obstacleSpriteScale / 2, obstacle.z);
             obstacleObject.renderOrder = RENDER_ORDER_OBSTACLE;
         } else {
             // --- Create Ground Plane for Non-Sprite Obstacles (like mud) --- 
@@ -1528,29 +1528,40 @@ function createCourse(courseData) {
             decorationObject = new THREE.Sprite(material);
              // Use obstacle scale for any generic decoration sprites for now
             decorationObject.scale.set(obstacleSpriteScale, obstacleSpriteScale, obstacleSpriteScale); 
-            // Position sprite origin AT the ground offset
-            decorationObject.position.set(decoration.x, Y_OFFSET_DECORATION, decoration.z);
+            // <<< FIXED: Position sprite so BOTTOM is at ground offset >>>
+            decorationObject.position.set(decoration.x, Y_OFFSET_DECORATION + obstacleSpriteScale / 2, decoration.z);
             decorationObject.renderOrder = RENDER_ORDER_DECORATION; 
         } else {
             // --- Create Ground Plane / Static Mesh (Finish Line, Start Gate) --- 
              // Use specific size for start gate mesh, otherwise default
             const width = (decoration.type === 'startgate') ? 25 : (decoration.width || 10); 
-            const length = (decoration.type === 'startgate') ? 5 : (decoration.length || 10); // Make start gate less deep
-            const geometry = new THREE.PlaneGeometry(width, length); 
-            geometry.rotateX(-Math.PI / 2);
+            const height = (decoration.type === 'startgate') ? 10 : (decoration.length || 10); // Use height for vertical gate
+            const length = (decoration.type === 'startgate') ? 1 : (decoration.length || 10); // Use length for depth if needed (finish line)
+
+            let geometry;
+            if (decoration.type === 'startgate') {
+                // <<< FIXED: Create VERTICAL plane for start gate >>>
+                geometry = new THREE.PlaneGeometry(width, height);
+                // NO X rotation needed, plane is vertical by default
+            } else { // Finish line or other flat decorations
+                 geometry = new THREE.PlaneGeometry(width, length); 
+                 geometry.rotateX(-Math.PI / 2); // Rotate flat
+            }
+            
             const material = new THREE.MeshBasicMaterial({
                 map: texture,
                 transparent: true, 
-                // Start gate mesh should write depth, finish line likely should not
                 depthWrite: (decoration.type === 'startgate'), 
-                depthTest: true, // All decorations should depth test
-                polygonOffset: (decoration.type !== 'startgate'), // Offset finish line, but not start gate
+                depthTest: true, 
+                polygonOffset: (decoration.type !== 'startgate'), 
                 polygonOffsetFactor: (decoration.type !== 'startgate') ? -0.4 : 0,
-                polygonOffsetUnits: (decoration.type !== 'startgate') ? -1.0 : 0
+                polygonOffsetUnits: (decoration.type !== 'startgate') ? -1.0 : 0,
+                side: THREE.DoubleSide // Make sure gate is visible from both sides
             });
             decorationObject = new THREE.Mesh(geometry, material);
-            // Position mesh slightly higher if it's the start gate, otherwise at offset
-            const yPos = (decoration.type === 'startgate') ? Y_OFFSET_DECORATION + 2.5 : Y_OFFSET_DECORATION; // Adjust start gate height if needed
+            
+            // <<< FIXED: Position gate so BOTTOM is at ground offset >>>
+            const yPos = (decoration.type === 'startgate') ? Y_OFFSET_DECORATION + height / 2 : Y_OFFSET_DECORATION; 
             decorationObject.position.set(decoration.x, yPos, decoration.z);
             decorationObject.renderOrder = RENDER_ORDER_DECORATION;
         }
