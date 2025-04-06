@@ -131,17 +131,38 @@ const flameTextures = [];
 const textures = {}; // <<< ADD Global object for course textures
 let particlesMaterial;
 
+// --- ADDED: Preload Set for Elements --- 
+const elementTexturesToPreload = new Set([
+    'startgate',
+    'blueblock',
+    'greenblock',
+    'darkgreenblock',
+    'redblock',
+    'yellowblock',
+    'tiresred',
+    'tireswhite'
+    // Add any other element types used
+]);
+
 function preloadAssets() {
     console.log("Preloading assets...");
     const assetsToLoad = [
+        // Keep existing terrain textures
         { key: '/textures/grass.png', type: 'texture' },
         { key: '/textures/mud.png', type: 'texture' },
         { key: '/textures/road.png', type: 'texture' },
         { key: '/textures/startfinishline.png', type: 'texture' },
         { key: '/textures/stripedline.png', type: 'texture' },
-        { key: '/textures/stripedlineflip.png', type: 'texture' } // <<< Add FLIPPED striped line
-        // Add other necessary course textures here if needed later
+        { key: '/textures/stripedlineflip.png', type: 'texture' }
     ];
+
+    // Add element textures to preload list dynamically
+    elementTexturesToPreload.forEach(elementType => {
+        assetsToLoad.push({ 
+            key: `/Sprites/courseelements/${elementType}.png`, 
+            type: 'texture' 
+        });
+    });
 
     let assetsLoaded = 0;
     // Preload spark textures
@@ -1418,27 +1439,24 @@ function createCourse(courseData) {
         const geometry = new THREE.PlaneGeometry(obstacle.width, obstacle.length);
         geometry.rotateX(-Math.PI / 2);
         
-        const texture = textures[`/textures/${obstacle.type}.png`];
+        // <<< FIXED PATH: Use /Sprites/courseelements/ path for obstacles >>>
+        const texturePath = `/Sprites/courseelements/${obstacle.type}.png`; 
+        const texture = textures[texturePath]; // Get from preloaded textures
         if (!texture) {
-            console.warn(`Texture not preloaded for obstacle type: ${obstacle.type}`);
+            console.warn(`Texture not preloaded for obstacle type: ${obstacle.type} at path: ${texturePath}`);
             return;
         }
         
         const material = new THREE.MeshBasicMaterial({
             map: texture,
             transparent: true,
-            depthWrite: false, // Obstacles (like mud) might be okay without depth write if transparency is key
+            depthWrite: false, 
             polygonOffset: true,
             polygonOffsetFactor: -0.6,
             polygonOffsetUnits: -2.0
         });
         
-        material.map.repeat.set(
-            obstacle.width / 10, 
-            obstacle.length / 10
-        );
-        material.map.wrapS = material.map.wrapT = THREE.RepeatWrapping;
-        material.map.needsUpdate = true;
+        // Obstacles usually don't repeat, assume 1x1 mapping for now.
 
         const mesh = new THREE.Mesh(geometry, material);
         mesh.position.set(obstacle.x, Y_OFFSET_OBSTACLE, obstacle.z);
@@ -1450,19 +1468,28 @@ function createCourse(courseData) {
 
     // Add decorations (highest layer)
     safeCourseData.decorations.forEach(decoration => {
-        const geometry = new THREE.PlaneGeometry(decoration.width || 10, decoration.length || 2); // Use provided or default size
+        // Use EDITOR_TILE_SIZE from server as default if needed (might need to pass this)
+        const geometry = new THREE.PlaneGeometry(decoration.width || 10, decoration.length || 10); // Use 10 if server value not available 
         geometry.rotateX(-Math.PI / 2);
         
-        const texture = textures[`/textures/${decoration.type}.png`];
+        // <<< FIXED PATH: Use correct path based on type >>>
+        let texturePath;
+        if (decoration.type === 'startfinishline') { // Special case for start/finish line
+             texturePath = `/textures/${decoration.type}.png`;
+        } else { // Assume others are in courseelements
+             texturePath = `/Sprites/courseelements/${decoration.type}.png`;
+        }
+
+        const texture = textures[texturePath]; // Get from preloaded textures
         if (!texture) {
-            console.warn(`Texture not preloaded for decoration type: ${decoration.type}`);
+            console.warn(`Texture not preloaded for decoration type: ${decoration.type} at path: ${texturePath}`);
             return;
         }
         
         const material = new THREE.MeshBasicMaterial({
             map: texture,
-            transparent: true, // Decorations might need transparency
-            depthWrite: false, // <<< CHANGE: Decorations likely overlay, don't write depth
+            transparent: true, 
+            depthWrite: false, 
             polygonOffset: false 
         });
         // No repeat needed for decorations usually
