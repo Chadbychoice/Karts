@@ -511,7 +511,7 @@ socket.on('disconnect', () => {
 });
 
 socket.on('updateGameState', (state, serverPlayers, options) => {
-    console.log('Received game state update:', state, options);
+    console.log('Received game state update:', state, options); // Log received options
     currentGameState = state;
     players = serverPlayers || {}; // Ensure players is initialized even if empty
 
@@ -519,26 +519,20 @@ socket.on('updateGameState', (state, serverPlayers, options) => {
         console.log('Racing state detected. Players:', players);
         waitingScreenOverlay.style.display = 'none'; // Hide waiting screen
         if (!raceInitialized) {
-            console.log('Initializing race with options:', options);
-            if (options && options.courseData) {
-                console.log('Creating course with data:', options.courseData);
-                createCourse(options.courseData);
-                initializeRaceScene(players, options);
-                raceInitialized = true;
-            } else {
-                console.error('No course data received from server');
-            }
+            console.log('Initializing race with options:', options); // Log options again here
+            // Pass the entire options.courseData object, or an empty object if it's missing
+            const courseDataToUse = options?.courseData || {}; 
+            console.log('Attempting to create course with data:', courseDataToUse); // Log what's passed to createCourse
+            createCourse(courseDataToUse); // Use the potentially empty object
+            initializeRaceScene(players, options); // options might still be needed for start positions etc.
+            raceInitialized = true;
+           
+        } else {
+             console.log("Race already initialized, updating players only.");
+              // Update players even if race was already initialized
+             updatePlayerObjects(); // Use the function to add/update players
         }
-        // Update all player positions
-        Object.entries(players).forEach(([playerId, playerData]) => {
-            if (!playerObjects[playerId] && playerData.characterId) {
-                console.log('Adding missing player object:', playerId, playerData);
-                addPlayerObject(playerId, playerData);
-            }
-            if (playerData.position && playerData.rotation) {
-                updatePlayerPosition(playerId, playerData.position, playerData.rotation);
-            }
-        });
+        
     } else if (state === 'character-selection') {
         showCharacterSelection();
         waitingScreenOverlay.style.display = 'none';
@@ -1306,8 +1300,21 @@ const courseLayouts = {
 let currentCourseObjects = []; // Keep track of course objects for cleanup
 
 function createCourse(courseData) {
-    console.log('Creating course with data:', courseData);
+    console.log('Creating course with data (received):', courseData); // Log exactly what was received
     
+    // Ensure courseData exists and provide defaults for missing arrays
+    const safeCourseData = {
+        terrain: Array.isArray(courseData?.terrain) ? courseData.terrain : [],
+        road: Array.isArray(courseData?.road) ? courseData.road : [],
+        obstacles: Array.isArray(courseData?.obstacles) ? courseData.obstacles : [],
+        decorations: Array.isArray(courseData?.decorations) ? courseData.decorations : []
+    };
+
+    if (!courseData || (safeCourseData.terrain.length === 0 && safeCourseData.road.length === 0 && safeCourseData.obstacles.length === 0 && safeCourseData.decorations.length === 0)) {
+        console.warn("Received empty or invalid course data structure. Course will be empty.");
+        // We still proceed to clear old elements, but don't add new ones if data is empty.
+    }
+
     // Clear existing course elements (ensure this works robustly)
     const objectsToRemove = [];
     scene.children.forEach(child => {
@@ -1337,7 +1344,7 @@ function createCourse(courseData) {
     const Y_OFFSET_DECORATION = 0.03;
 
     // Add terrain elements first (lowest layer)
-    courseData.terrain.forEach(terrain => {
+    safeCourseData.terrain.forEach(terrain => {
         const geometry = new THREE.PlaneGeometry(terrain.width, terrain.length);
         geometry.rotateX(-Math.PI / 2);
         
@@ -1372,7 +1379,7 @@ function createCourse(courseData) {
     });
 
     // Add road elements (on top of terrain)
-    courseData.road.forEach(roadSegment => {
+    safeCourseData.road.forEach(roadSegment => {
         const geometry = new THREE.PlaneGeometry(roadSegment.width, roadSegment.length);
         geometry.rotateX(-Math.PI / 2);
         
@@ -1407,7 +1414,7 @@ function createCourse(courseData) {
     });
 
     // Add obstacles (on top of road/terrain)
-    courseData.obstacles.forEach(obstacle => {
+    safeCourseData.obstacles.forEach(obstacle => {
         const geometry = new THREE.PlaneGeometry(obstacle.width, obstacle.length);
         geometry.rotateX(-Math.PI / 2);
         
@@ -1442,7 +1449,7 @@ function createCourse(courseData) {
     });
 
     // Add decorations (highest layer)
-    courseData.decorations.forEach(decoration => {
+    safeCourseData.decorations.forEach(decoration => {
         const geometry = new THREE.PlaneGeometry(decoration.width || 10, decoration.length || 2); // Use provided or default size
         geometry.rotateX(-Math.PI / 2);
         
@@ -1824,34 +1831,21 @@ function updateBoostFlame(playerId, now) {
     }
 }
 
-// NEW Function to create course from loaded data
+// NEW Function to create course from loaded data (already exists, just referencing)
 function createCourseFromData(courseData) {
     if (!courseData) {
         console.error('No course data provided to createCourseFromData.');
-        return createCourse(courseLayouts[1]); // Fallback to default course
+        // Fallback still creates potentially empty course if layout 1 is also broken
+        // return createCourse(courseLayouts[1]); 
+        return createCourse({}); // Pass empty object to trigger guards
     }
 
-    console.log('Creating course from data:', courseData);
+    console.log('Creating course from data structure:', courseData);
 
-    // Create course using the provided data
-    createCourse({
-        name: courseData.name,
-        planeSize: courseData.planeSize || { width: 100, height: 200 },
-        roadTexturePath: courseData.roadTexturePath || '/textures/road.png',
-        textureRepeat: courseData.textureRepeat || { x: 10, y: 20 },
-        walls: courseData.walls || [
-            { type: 'box', size: { x: 1, y: 3, z: 200 }, position: { x: -50.5, y: 1.5, z: 0 } },
-            { type: 'box', size: { x: 1, y: 3, z: 200 }, position: { x: 50.5, y: 1.5, z: 0 } }
-        ],
-        startPositions: courseData.startPositions || [
-            { x: 0, z: 5 }, { x: 2, z: 5 }, { x: -2, z: 5 }, { x: 4, z: 5 }
-        ],
-        terrain: courseData.terrain || [],
-        obstacles: courseData.obstacles || [],
-        decorations: courseData.decorations || []
-    });
+    // Create course using the provided data - already passes to createCourse
+    createCourse(courseData);
 
-    return true;
+    return true; 
 }
 
 // Function to clean up scene objects and state when race ends or resets
