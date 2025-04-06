@@ -3,7 +3,8 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, basename } from 'path';
+import fs from 'fs/promises';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -11,42 +12,57 @@ const __dirname = dirname(__filename);
 const app = express();
 const server = createServer(app);
 
-// Course data
-const courses = {
-    test: {
-        id: 'test',
-        name: "Test Track",
-        planeSize: { width: 100, height: 100 },
-        roadTexturePath: '/textures/road.png',
-        textureRepeat: { x: 10, y: 10 },
-        checkpoints: [
-            { x: -40, y: 0, z: 0 },
-            { x: 40, y: 0, z: 0 },
-            { x: 40, y: 0, z: 40 },
-            { x: -40, y: 0, z: 40 }
-        ],
-        startPositions: [
-            { x: 0, y: 0, z: 0 },
-            { x: 2, y: 0, z: 0 },
-            { x: -2, y: 0, z: 0 },
-            { x: 4, y: 0, z: 0 }
-        ],
-        startRotation: { y: 0 },
-        terrain: [
-            { type: 'road', x: 0, y: 0, z: 0, width: 80, length: 80 },
-            { type: 'grass', x: -50, y: 0, z: 0, width: 20, length: 80 },
-            { type: 'grass', x: 50, y: 0, z: 0, width: 20, length: 80 }
-        ],
-        obstacles: [
-            { type: 'mud', x: 20, y: 0, z: 20, width: 10, length: 10 },
-            { type: 'mud', x: -20, y: 0, z: 40, width: 10, length: 10 }
-        ],
-        decorations: [
-            { type: 'startline', x: 0, y: 0.1, z: 5, rotation: { y: 0 } },
-            { type: 'finishline', x: 0, y: 0.1, z: 75, rotation: { y: 0 } }
-        ]
+const COURSES_DIR = join(__dirname, 'courses');
+
+// Course data (Load existing courses on startup)
+let courses = {};
+
+async function loadCourses() {
+    try {
+        await fs.mkdir(COURSES_DIR, { recursive: true });
+        const files = await fs.readdir(COURSES_DIR);
+        for (const file of files) {
+            if (file.endsWith('.json')) {
+                const filePath = join(COURSES_DIR, file);
+                const courseId = basename(file, '.json');
+                try {
+                    const data = await fs.readFile(filePath, 'utf-8');
+                    courses[courseId] = JSON.parse(data);
+                    console.log(`Loaded course: ${courseId}`);
+                } catch (parseError) {
+                    console.error(`Error parsing course file ${file}:`, parseError);
+                }
+            }
+        }
+    } catch (error) {
+        console.error("Error loading courses:", error);
+        if (Object.keys(courses).length === 0) {
+            console.warn("No courses loaded, ensure courses directory exists and is readable.");
+            courses['test'] = {
+                id: 'test',
+                name: "Default Test Track",
+                planeSize: { width: 100, height: 100 },
+                startPositions: [{ x: 0, y: 0, z: 0 }],
+                startRotation: { y: 0 },
+                terrain: [{ type: 'grass', x: 0, y: 0, z: 0, width: 100, length: 100 }],
+                obstacles: [], decorations: [], checkpoints: []
+            };
+            console.log("Created default 'test' course.");
+        }
     }
-};
+    if (!courses['test']) {
+        courses['test'] = {
+            id: 'test',
+            name: "Default Test Track",
+            planeSize: { width: 100, height: 100 },
+            startPositions: [{ x: 0, y: 0, z: 0 }],
+            startRotation: { y: 0 },
+            terrain: [{ type: 'grass', x: 0, y: 0, z: 0, width: 100, length: 100 }],
+            obstacles: [], decorations: [], checkpoints: []
+        };
+        console.log("Created default 'test' course.");
+    }
+}
 
 // Configure Socket.IO
 const io = new Server(server, {
@@ -198,9 +214,14 @@ function checkCollisions(gameState) {
 io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
 
-    // Add player to game state with ready status
-    const startPos = courses[gameState.currentCourse].startPositions[
-        Object.keys(gameState.players).length % courses[gameState.currentCourse].startPositions.length
+    if (!courses[gameState.currentCourse]) {
+        console.warn(`Current course '${gameState.currentCourse}' not found, switching to 'test'.`);
+        gameState.currentCourse = 'test';
+    }
+
+    const currentValidCourse = courses[gameState.currentCourse];
+    const startPos = currentValidCourse.startPositions[
+        Object.keys(gameState.players).length % currentValidCourse.startPositions.length
     ];
     
     // Initialize player in character selection state
@@ -210,7 +231,7 @@ io.on('connection', (socket) => {
         timestamp: Date.now(),
         characterId: null,
         position: { ...startPos },
-        rotation: { ...courses[gameState.currentCourse].startRotation },
+        rotation: { ...currentValidCourse.startRotation },
         velocity: 0,
         lap: 1,
         nextCheckpoint: 0,
@@ -221,7 +242,7 @@ io.on('connection', (socket) => {
     // Send initial state to new player
     socket.emit('updateGameState', gameState.state, gameState.players, {
         courseId: gameState.currentCourse,
-        courseData: courses[gameState.currentCourse]
+        courseData: currentValidCourse
     });
 
     // Handle character selection
@@ -232,11 +253,11 @@ io.on('connection', (socket) => {
             gameState.readyPlayers.add(socket.id);
             
             // Put player directly into racing state (using the correct start pos for THIS player)
-             const startPos = courses[gameState.currentCourse].startPositions[
-                 (Object.keys(gameState.players).length -1) % courses[gameState.currentCourse].startPositions.length
+             const startPos = currentValidCourse.startPositions[
+                 (Object.keys(gameState.players).length -1) % currentValidCourse.startPositions.length
              ]; // Get pos based on current player index
             gameState.players[socket.id].position = { ...startPos };
-            gameState.players[socket.id].rotation = { ...courses[gameState.currentCourse].startRotation };
+            gameState.players[socket.id].rotation = { ...currentValidCourse.startRotation };
             gameState.players[socket.id].isSpectator = false;
 
             // Update game state to racing if it wasn't already
@@ -247,11 +268,19 @@ io.on('connection', (socket) => {
                 console.log('Game state changed to racing!');
             }
 
-            // Always emit the update to ensure everyone gets the latest player data and the course if state just changed
-            console.log(`Emitting updateGameState: ${gameState.state} with course data`);
+            // Ensure the course exists before using it
+             const courseToSend = courses[gameState.currentCourse];
+             if (!courseToSend) {
+                  console.error(`Error: Course '${gameState.currentCourse}' not found when trying to emit racing state.`);
+                  // Optionally switch back to test or handle error
+                  return; // Prevent emitting bad state
+             }
+
+            // Always emit the update 
+            console.log(`Emitting updateGameState: ${gameState.state} with course data for ${gameState.currentCourse}`);
             io.emit('updateGameState', gameState.state, gameState.players, {
                 courseId: gameState.currentCourse,
-                courseData: courses[gameState.currentCourse] // <<< ADDED: Include course data here
+                courseData: courseToSend
             });
             
             // Log if state changed for clarity
@@ -331,6 +360,35 @@ io.on('connection', (socket) => {
             }
         }
     });
+
+    // Handle Level Saving from Editor
+    socket.on('editorSaveLevel', async ({ name, data }) => {
+        console.log(`Received save request for level: ${name}`);
+        // Basic sanitization: allow letters, numbers, underscore, hyphen
+        const safeBaseName = name.replace(/[^a-zA-Z0-9_\-]/g, '');
+        if (!safeBaseName) {
+            console.error("Invalid or empty course name received after sanitization.");
+            socket.emit('editorSaveConfirm', { success: false, message: 'Invalid course name.' });
+            return;
+        }
+
+        const filename = `${safeBaseName}.json`;
+        const filePath = join(COURSES_DIR, filename);
+
+        try {
+            await fs.mkdir(COURSES_DIR, { recursive: true });
+            await fs.writeFile(filePath, JSON.stringify(data, null, 2));
+            console.log(`Successfully saved course to ${filePath}`);
+            
+            // Update in-memory courses object
+            courses[safeBaseName] = data; 
+            
+            socket.emit('editorSaveConfirm', { success: true, name: safeBaseName });
+        } catch (error) {
+            console.error(`Error saving course ${name} to ${filePath}:`, error);
+            socket.emit('editorSaveConfirm', { success: false, message: 'Server error saving file.' });
+        }
+    });
 });
 
 // Error handling middleware
@@ -395,4 +453,6 @@ process.on('uncaughtException', (error) => {
     }
 });
 
-startServer(); 
+loadCourses().then(() => {
+    startServer(); 
+}); 
