@@ -1395,31 +1395,37 @@ function createCourse(courseData) {
         return editorTileGrid.find(t => t.x === x && t.y === y);
     }
     
-    function addStripe(x, z, angle, flipped = false) {
-        const stripeTextureKey = flipped ? '/textures/stripedlineflip.png' : '/textures/stripedline.png';
+    function addStripe(x, z, angle) { // <<< REMOVED flipped parameter
+        // <<< FIXED: Select texture based on angle >>>
+        const isHorizontal = (angle === 0);
+        const stripeTextureKey = isHorizontal ? '/textures/stripedline.png' : '/textures/stripedlineflip.png';
+        
         const stripeTexture = textures[stripeTextureKey];
         if (!stripeTexture) {
             console.warn(`Stripe texture missing: ${stripeTextureKey}`);
             return;
         }
-        const stripeWidth = 1; // Width of the stripe texture itself
-        const stripeLength = 25; // Use fixed length matching server tile size
-        const geometry = new THREE.PlaneGeometry(stripeLength, stripeWidth);
+        // Use fixed world size for stripe geometry based on server tile size
+        const TILE_WORLD_SIZE = 25; 
+        const stripeWidth = TILE_WORLD_SIZE * 0.1; // Make stripe thinner relative to tile size
+        const stripeLength = TILE_WORLD_SIZE;
+        
+        const geometry = new THREE.PlaneGeometry(stripeLength, stripeWidth); // Corrected: Length first for horizontal base
         geometry.rotateX(-Math.PI / 2); // Lay flat
-        geometry.rotateY(angle); // Rotate around Y
+        geometry.rotateY(angle); // Rotate around Y axis based on direction
         
         const material = new THREE.MeshBasicMaterial({
             map: stripeTexture,
             transparent: true,
-            depthWrite: false, // Stripes shouldn't obscure things
+            depthWrite: false, 
             depthTest: true, 
-             polygonOffset: true, // Offset to fight Z-fighting with road
-             polygonOffsetFactor: -0.2,
-             polygonOffsetUnits: -0.5
+             polygonOffset: true, 
+             polygonOffsetFactor: -1.0, // <<< Increased offset factor
+             polygonOffsetUnits: -2.0 // <<< Increased offset units
         });
         
         const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(x, Y_OFFSET_STRIPE, z); // Position slightly above road
+        mesh.position.set(x, Y_OFFSET_STRIPE, z); 
         mesh.renderOrder = RENDER_ORDER_STRIPE;
         mesh.userData = { isCourseElement: true, type: 'stripe' };
         scene.add(mesh);
@@ -1519,9 +1525,9 @@ function createCourse(courseData) {
         
         // Add stripes based on neighbor checks
         if (!isRoad(neighbors.n)) addStripe(roadSegment.x, roadSegment.z - halfTile, 0); 
-        if (!isRoad(neighbors.s)) addStripe(roadSegment.x, roadSegment.z + halfTile, 0, true);
+        if (!isRoad(neighbors.s)) addStripe(roadSegment.x, roadSegment.z + halfTile, 0);
         if (!isRoad(neighbors.w)) addStripe(roadSegment.x - halfTile, roadSegment.z, Math.PI / 2);
-        if (!isRoad(neighbors.e)) addStripe(roadSegment.x + halfTile, roadSegment.z, Math.PI / 2, true);
+        if (!isRoad(neighbors.e)) addStripe(roadSegment.x + halfTile, roadSegment.z, Math.PI / 2);
     });
 
     // Add obstacles (could be ground textures like mud or sprites like blocks)
