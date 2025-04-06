@@ -231,22 +231,33 @@ io.on('connection', (socket) => {
             gameState.players[socket.id].characterId = characterId;
             gameState.readyPlayers.add(socket.id);
             
-            // Put player directly into racing state
+            // Put player directly into racing state (using the correct start pos for THIS player)
+             const startPos = courses[gameState.currentCourse].startPositions[
+                 (Object.keys(gameState.players).length -1) % courses[gameState.currentCourse].startPositions.length
+             ]; // Get pos based on current player index
             gameState.players[socket.id].position = { ...startPos };
             gameState.players[socket.id].rotation = { ...courses[gameState.currentCourse].startRotation };
             gameState.players[socket.id].isSpectator = false;
 
-            // Update game state to racing if all players are ready
+            // Update game state to racing if it wasn't already
+            let stateChanged = false;
             if (gameState.state !== 'racing') {
                 gameState.state = 'racing';
-                console.log('All players ready, starting race!');
+                stateChanged = true;
+                console.log('Game state changed to racing!');
             }
 
-            // Send racing state to all players
+            // Always emit the update to ensure everyone gets the latest player data and the course if state just changed
+            console.log(`Emitting updateGameState: ${gameState.state} with course data`);
             io.emit('updateGameState', gameState.state, gameState.players, {
                 courseId: gameState.currentCourse,
-                courseData: courses[gameState.currentCourse]
+                courseData: courses[gameState.currentCourse] // <<< ADDED: Include course data here
             });
+            
+            // Log if state changed for clarity
+            if (stateChanged) {
+                console.log('Racing state initiated and broadcasted with course data.');
+            }
         }
     });
 
