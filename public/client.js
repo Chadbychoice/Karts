@@ -318,8 +318,8 @@ function setupCharacterSelection() {
             preview.style.backgroundColor = '';
             preview.style.border = '';
         };
-        tempImg.onerror = () => {
-            console.error(`[Loop ${index}] ERROR loading preview image: ${previewTexturePath}`);
+        tempImg.onerror = (event) => { // Add event parameter
+            console.error(`[Loop ${index}] ERROR loading preview image: ${previewTexturePath}`, event); // Log the event object
             preview.alt = `${char.name} (Image Missing)`;
             preview.style.backgroundColor = '#555';
             preview.style.border = '1px dashed white';
@@ -382,8 +382,8 @@ function startCharacterRotation(imgElement, characterData) {
         imgElement.style.backgroundColor = '';
         imgElement.style.border = '';
     };
-    tempImg.onerror = () => {
-        console.warn(`Initial sprite not found: ${texturePath}`);
+    tempImg.onerror = (event) => { // Add event parameter
+        console.warn(`Initial sprite not found: ${texturePath}`, event); // Log the event object
         imgElement.style.backgroundColor = '#555';
         imgElement.style.border = '1px dashed white';
         stopCharacterRotation(imgElement, intervalKey);
@@ -401,8 +401,8 @@ function startCharacterRotation(imgElement, characterData) {
             imgElement.style.backgroundColor = '';
             imgElement.style.border = '';
         };
-        nextTempImg.onerror = () => {
-            console.warn(`Sprite not found during rotation: ${nextSrc}`);
+        nextTempImg.onerror = (event) => { // Add event parameter
+            console.warn(`Sprite not found during rotation: ${nextSrc}`, event); // Log the event object
             imgElement.style.backgroundColor = '#555';
             imgElement.style.border = '1px dashed white';
             stopCharacterRotation(imgElement, intervalKey);
@@ -593,67 +593,61 @@ const playerSpriteScale = 2;
 let playerVisuals = {}; // Store visual components { sprite, boostFlame, driftParticles }
 
 function addPlayerObject(playerId, playerData) {
-    if (!playerObjects[playerId] && playerData.characterId) {
-        const characterId = playerData.characterId;
-        const initialAngleCode = 'b';
-        const texture = getCharacterTexture(characterId, initialAngleCode);
+    if (playerObjects[playerId]) return; // Already exists
+    if (!playerData.characterId) {
+        console.warn(`Player ${playerId} has no characterId, cannot create sprite.`);
+        return;
+    }
 
-        if (!texture) {
-            console.error(`Cannot create sprite for player ${playerId}, texture not loaded/failed for char ${characterId}`);
-            // Create a colored rectangle as fallback
-            const fallbackMaterial = new THREE.SpriteMaterial({
-                color: 0xff0000,
-                transparent: true,
-                alphaTest: 0.1
-            });
-            const sprite = new THREE.Sprite(fallbackMaterial);
-            sprite.scale.set(playerSpriteScale, playerSpriteScale, playerSpriteScale);
-            sprite.userData = { characterId: characterId, currentAngleCode: initialAngleCode };
-            playerObjects[playerId] = sprite;
-            
-            if (playerData.position) {
-                sprite.position.set(
-                    playerData.position.x,
-                    playerData.position.y + playerSpriteScale / 2,
-                    playerData.position.z
-                );
-            } else {
-                sprite.position.set(0, playerSpriteScale / 2, 0);
+    const characterId = playerData.characterId;
+    const initialAngleCode = 'b'; // Default to back view
+
+    // Create fallback sprite material first
+    const fallbackMaterial = new THREE.SpriteMaterial({
+        color: 0x888888, // Grey fallback color
+        transparent: true,
+        alphaTest: 0.1
+    });
+    const sprite = new THREE.Sprite(fallbackMaterial);
+    sprite.scale.set(playerSpriteScale, playerSpriteScale, playerSpriteScale);
+    sprite.userData = { characterId: characterId, currentAngleCode: initialAngleCode };
+    playerObjects[playerId] = sprite;
+
+    if (playerData.position) {
+        sprite.position.set(
+            playerData.position.x,
+            playerData.position.y + playerSpriteScale / 2, // Use correct height
+            playerData.position.z
+        );
+    } else {
+        sprite.position.set(0, playerSpriteScale / 2, 0); // Default position with height
+        console.warn(`Player ${playerId} created without initial position.`);
+    }
+    scene.add(sprite);
+    console.log(`Added fallback sprite for player ${playerId} (char ${characterId})`);
+
+    // Now try to load the actual texture asynchronously
+    getCharacterTexture(characterId, initialAngleCode)
+        .then(texture => {
+            if (texture && playerObjects[playerId]) { // Check if player still exists
+                const material = new THREE.SpriteMaterial({
+                    map: texture,
+                    transparent: true,
+                    alphaTest: 0.1,
+                });
+                playerObjects[playerId].material = material; // Replace material
+                playerObjects[playerId].material.needsUpdate = true;
+                console.log(`Successfully applied texture for player ${playerId} (char ${characterId})`);
+            } else if (playerObjects[playerId]) {
+                 console.warn(`Texture resolved as null/falsy for player ${playerId} (char ${characterId}), keeping fallback.`);
             }
-            scene.add(sprite);
-            console.warn(`Added fallback sprite for player ${playerId}`);
-            createPlayerVisualEffects(playerId, sprite);
-            return;
-        }
-
-        const material = new THREE.SpriteMaterial({
-            map: texture,
-            transparent: true,
-            alphaTest: 0.1,
+        })
+        .catch(err => {
+            console.error(`Cannot load initial texture for player ${playerId} (char ${characterId}), keeping fallback. Error:`, err);
         });
 
-        const sprite = new THREE.Sprite(material);
-        sprite.scale.set(playerSpriteScale, playerSpriteScale, playerSpriteScale);
-        sprite.userData = { characterId: characterId, currentAngleCode: initialAngleCode };
-        playerObjects[playerId] = sprite;
-
-        // Set initial sprite position with proper height
-        if (playerData.position) {
-            sprite.position.set(
-                playerData.position.x,
-                playerData.position.y + playerSpriteScale / 2, // Restore original height
-                playerData.position.z
-            );
-        } else {
-            sprite.position.set(0, playerSpriteScale / 2, 0); // Restore original height
-             console.warn(`Player ${playerId} created without initial position.`);
-        }
-        scene.add(sprite);
-        console.log(`Added player sprite for: ${playerId} with char ${characterId} at position:`, playerData.position);
-
-        // Create visual effects
-        createPlayerVisualEffects(playerId, sprite);
-    }
+    // Create visual effects (flame, particles)
+    createPlayerVisualEffects(playerId, sprite);
 }
 
 function createPlayerVisualEffects(playerId, sprite) {
@@ -1166,37 +1160,43 @@ function updatePlayerSpriteAngle(playerId, sprite, playerData) {
         const isDrifting = (localPlayerDriftState.state === 'driftingLeft' || localPlayerDriftState.state === 'driftingRight');
 
         if (isDrifting) {
-            // Force sprite angle based on drift direction
             newAngleIndex = (localPlayerDriftState.direction === -1) ? 5 : 3; // 5='bl', 3='br'
         } else {
-            // Original logic for non-drifting state (hold turn delay etc.)
             const now = Date.now();
             if ((keyStates['a'] || keyStates['arrowleft']) && leftTurnStartTime && (now - leftTurnStartTime > TURN_SPRITE_DELAY)) {
-                newAngleIndex = 5; // Force 'bl' sprite after delay
+                newAngleIndex = 5;
             } else if ((keyStates['d'] || keyStates['arrowright']) && rightTurnStartTime && (now - rightTurnStartTime > TURN_SPRITE_DELAY)) {
-                newAngleIndex = 3; // Force 'br' sprite after delay
+                newAngleIndex = 3;
             } else {
-                // If not turning long enough or not turning, use camera vs facing angle
                 newAngleIndex = calculateSpriteAngleIndex(sprite, playerData);
             }
         }
     } else {
-        // For remote players, use camera vs facing angle
         newAngleIndex = calculateSpriteAngleIndex(sprite, playerData);
     }
 
     const newAngleCode = characterSpriteAngles[newAngleIndex];
 
-    // Only update texture if the angle code has changed
     if (newAngleCode !== sprite.userData.currentAngleCode) {
-        const newTexture = getCharacterTexture(sprite.userData.characterId, newAngleCode);
-        if (newTexture && sprite.material.map !== newTexture) {
-            sprite.material.map = newTexture;
-            sprite.material.needsUpdate = true;
-            sprite.userData.currentAngleCode = newAngleCode;
-        } else if (!newTexture) {
-             console.warn(`Failed to get texture for angle ${newAngleCode} for player ${playerId}`);
-        }
+        sprite.userData.currentAngleCode = newAngleCode; // Update code immediately to prevent repeated loads
+
+        getCharacterTexture(sprite.userData.characterId, newAngleCode)
+            .then(newTexture => {
+                // Check if the player and sprite still exist and if the angle is still the desired one
+                if (playerObjects[playerId] && sprite && sprite.userData.currentAngleCode === newAngleCode) {
+                    if (newTexture) {
+                        sprite.material.map = newTexture;
+                        sprite.material.needsUpdate = true;
+                    } else {
+                        // Optional: Set to a fallback/placeholder if texture load failed?
+                        console.warn(`Texture resolved as null/falsy for angle ${newAngleCode} player ${playerId}`);
+                    }
+                }
+            })
+            .catch(err => {
+                console.error(`Failed to get texture for angle ${newAngleCode} player ${playerId}:`, err);
+                // Optional: Handle error, maybe revert angle code or use fallback
+            });
     }
 }
 
@@ -1274,90 +1274,170 @@ let currentCourseObjects = []; // Keep track of course objects for cleanup
 function createCourse(courseData) {
     console.log('Creating course with data:', courseData);
     
-    // Clear existing course elements
+    // Clear existing course elements (ensure this works robustly)
+    const objectsToRemove = [];
     scene.children.forEach(child => {
         if (child.userData && child.userData.isCourseElement) {
-            scene.remove(child);
-            if (child.material) child.material.dispose();
-            if (child.geometry) child.geometry.dispose();
+            objectsToRemove.push(child);
         }
     });
+    objectsToRemove.forEach(child => {
+        scene.remove(child);
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) {
+            if (child.material.map) child.material.map.dispose();
+            child.material.dispose();
+        }
+    });
+    currentCourseObjects = []; // Reset tracking array
 
-    // Create ground plane
-    const planeGeometry = new THREE.PlaneGeometry(
-        courseData.planeSize.width || 100,
-        courseData.planeSize.height || 100
-    );
-    planeGeometry.rotateX(-Math.PI / 2); // Rotate to be horizontal
+    // Define render order offsets
+    const RENDER_ORDER_TERRAIN = 0;
+    const RENDER_ORDER_ROAD = 1;
+    const RENDER_ORDER_OBSTACLE = 2;
+    const RENDER_ORDER_DECORATION = 3;
 
-    // Add terrain elements
+    const Y_OFFSET_TERRAIN = 0.00;
+    const Y_OFFSET_ROAD = 0.01;
+    const Y_OFFSET_OBSTACLE = 0.02;
+    const Y_OFFSET_DECORATION = 0.03;
+
+    // Add terrain elements first (lowest layer)
     courseData.terrain.forEach(terrain => {
         const geometry = new THREE.PlaneGeometry(terrain.width, terrain.length);
         geometry.rotateX(-Math.PI / 2);
         
+        const texture = textures[`/textures/${terrain.type}.png`];
+        if (!texture) {
+            console.warn(`Texture not preloaded for terrain type: ${terrain.type}`);
+            return; // Skip if texture is missing
+        }
+        
         const material = new THREE.MeshBasicMaterial({
-            map: textures[`/textures/${terrain.type}.png`],
-            transparent: true
+            map: texture,
+            transparent: true,
+            depthWrite: false, // Terrain shouldn't obscure things on top
+            polygonOffset: true, // Enable polygon offset
+            polygonOffsetFactor: -1.0, // Push terrain back slightly
+            polygonOffsetUnits: -4.0
         });
         
-        if (material.map) {
-            material.map.repeat.set(
-                terrain.width / 10,
-                terrain.length / 10
-            );
-            material.map.wrapS = material.map.wrapT = THREE.RepeatWrapping;
-        }
+        material.map.repeat.set(
+            terrain.width / 10, 
+            terrain.length / 10
+        );
+        material.map.wrapS = material.map.wrapT = THREE.RepeatWrapping;
+        material.map.needsUpdate = true; // Ensure repeat settings apply
 
         const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(terrain.x, terrain.y + 0.01, terrain.z); // Slightly above ground
+        mesh.position.set(terrain.x, Y_OFFSET_TERRAIN, terrain.z);
+        mesh.renderOrder = RENDER_ORDER_TERRAIN;
         mesh.userData = { isCourseElement: true, type: terrain.type };
         scene.add(mesh);
+        currentCourseObjects.push(mesh); // Track object
     });
 
-    // Add obstacles
+    // Add road elements (on top of terrain)
+    courseData.road.forEach(roadSegment => {
+        const geometry = new THREE.PlaneGeometry(roadSegment.width, roadSegment.length);
+        geometry.rotateX(-Math.PI / 2);
+        
+        const texture = textures[`/textures/road.png`]; // Assuming road.png for all road
+        if (!texture) {
+            console.warn(`Texture not preloaded for road`);
+            return;
+        }
+
+        const material = new THREE.MeshBasicMaterial({
+            map: texture,
+            transparent: true,
+            depthWrite: false, // Road shouldn't obscure decorations
+            polygonOffset: true,
+            polygonOffsetFactor: -0.8, // Push road back, but less than terrain
+            polygonOffsetUnits: -3.0
+        });
+
+        material.map.repeat.set(
+            roadSegment.width / 10, 
+            roadSegment.length / 10
+        );
+        material.map.wrapS = material.map.wrapT = THREE.RepeatWrapping;
+        material.map.needsUpdate = true;
+
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.set(roadSegment.x, Y_OFFSET_ROAD, roadSegment.z);
+        mesh.renderOrder = RENDER_ORDER_ROAD;
+        mesh.userData = { isCourseElement: true, type: 'road' };
+        scene.add(mesh);
+        currentCourseObjects.push(mesh);
+    });
+
+    // Add obstacles (on top of road/terrain)
     courseData.obstacles.forEach(obstacle => {
         const geometry = new THREE.PlaneGeometry(obstacle.width, obstacle.length);
         geometry.rotateX(-Math.PI / 2);
         
+        const texture = textures[`/textures/${obstacle.type}.png`];
+        if (!texture) {
+            console.warn(`Texture not preloaded for obstacle type: ${obstacle.type}`);
+            return;
+        }
+        
         const material = new THREE.MeshBasicMaterial({
-            map: textures[`/textures/${obstacle.type}.png`],
-            transparent: true
+            map: texture,
+            transparent: true,
+            depthWrite: false, // Obstacles shouldn't obscure decorations usually
+            polygonOffset: true,
+            polygonOffsetFactor: -0.6,
+            polygonOffsetUnits: -2.0
         });
         
-        if (material.map) {
-            material.map.repeat.set(
-                obstacle.width / 10,
-                obstacle.length / 10
-            );
-            material.map.wrapS = material.map.wrapT = THREE.RepeatWrapping;
-        }
+        material.map.repeat.set(
+            obstacle.width / 10, 
+            obstacle.length / 10
+        );
+        material.map.wrapS = material.map.wrapT = THREE.RepeatWrapping;
+        material.map.needsUpdate = true;
 
         const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(obstacle.x, obstacle.y + 0.02, obstacle.z); // Slightly above terrain
+        mesh.position.set(obstacle.x, Y_OFFSET_OBSTACLE, obstacle.z);
+        mesh.renderOrder = RENDER_ORDER_OBSTACLE;
         mesh.userData = { isCourseElement: true, type: obstacle.type };
         scene.add(mesh);
+        currentCourseObjects.push(mesh);
     });
 
-    // Add decorations (start/finish lines, etc.)
+    // Add decorations (highest layer)
     courseData.decorations.forEach(decoration => {
-        const geometry = new THREE.PlaneGeometry(10, 2); // Standard size for lines
+        const geometry = new THREE.PlaneGeometry(decoration.width || 10, decoration.length || 2); // Use provided or default size
         geometry.rotateX(-Math.PI / 2);
         
+        const texture = textures[`/textures/${decoration.type}.png`];
+        if (!texture) {
+            console.warn(`Texture not preloaded for decoration type: ${decoration.type}`);
+            return;
+        }
+        
         const material = new THREE.MeshBasicMaterial({
-            map: textures[`/textures/${decoration.type}.png`],
-            transparent: true
+            map: texture,
+            transparent: true,
+            depthWrite: true, // Decorations are usually opaque and on top
+            polygonOffset: false // No offset needed for the top layer
         });
+        // No repeat needed for decorations usually
 
         const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(decoration.x, decoration.y + 0.03, decoration.z);
+        mesh.position.set(decoration.x, Y_OFFSET_DECORATION, decoration.z);
         if (decoration.rotation) {
             mesh.rotation.y = decoration.rotation.y;
         }
+        mesh.renderOrder = RENDER_ORDER_DECORATION;
         mesh.userData = { isCourseElement: true, type: decoration.type };
         scene.add(mesh);
+        currentCourseObjects.push(mesh);
     });
 
-    console.log('Course creation completed');
+    console.log(`Course creation completed. Added ${currentCourseObjects.length} elements.`);
 }
 
 // --- Race Initialization ---
