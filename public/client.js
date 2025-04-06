@@ -223,53 +223,79 @@ function preloadAssets() {
 function getCharacterTexture(characterId, angle = 'b') {
     const cacheKey = `${characterId}_${angle}`;
     
-    // Return cached texture if available
-    if (characterTextures[cacheKey] && characterTextures[cacheKey] !== null) {
-        return characterTextures[cacheKey];
+    // Return cached texture if available and not null
+    if (characterTextures.hasOwnProperty(cacheKey)) { // Check ownership explicitly
+        if (characterTextures[cacheKey] instanceof THREE.Texture) {
+            // console.log(`Returning cached texture for: ${cacheKey}`);
+            return Promise.resolve(characterTextures[cacheKey]); // Wrap in resolved promise
+        } else if (characterTextures[cacheKey] === null) {
+            // console.log(`Returning null (previously failed) for: ${cacheKey}`);
+            return Promise.resolve(null); // Indicate known failure
+        }
+        // If entry exists but isn't Texture or null, it might be a pending promise
+        if (characterTextures[cacheKey] instanceof Promise) {
+            // console.log(`Returning PENDING promise for: ${cacheKey}`);
+            return characterTextures[cacheKey];
+        }
     }
 
     const character = characters[characterId];
     if (!character) {
         console.error(`Invalid characterId: ${characterId}`);
-        return null;
+        return Promise.resolve(null); // Return resolved null promise
     }
 
-    // Create a new texture loader for each request to avoid CORS issues
-    const textureLoader = new THREE.TextureLoader();
-    textureLoader.crossOrigin = 'anonymous';
+    // Use the global textureLoader
+    // const textureLoader = new THREE.TextureLoader(); // <<< REMOVE: Don't create new loader
+    // textureLoader.crossOrigin = 'anonymous'; // <<< REMOVE: Already set on global loader
 
-    // Construct the texture path without double slashes
     const texturePath = `${ASSET_BASE_URL}/${character.baseSpritePath}/${characterId}${angle}.png`.replace(/([^:]\/)\/+/g, "$1");
-    console.log('Loading texture:', texturePath);
+    console.log('Loading texture:', texturePath); // Keep log for debugging
     
-    // Create a promise to handle texture loading
-    return new Promise((resolve, reject) => {
-        characterTextures[cacheKey] = textureLoader.load(
+    // Create and STORE the promise in the cache immediately
+    const loadingPromise = new Promise((resolve) => { // No reject needed, resolve with null on error
+        textureLoader.load(
             texturePath,
             (texture) => {
                 texture.magFilter = THREE.NearestFilter;
                 texture.minFilter = THREE.NearestFilter;
-                console.log(`Successfully loaded texture: ${texturePath}`);
-                characterTextures[cacheKey] = texture;
+                // console.log(`Successfully loaded texture: ${texturePath}`); // Reduce success logs
+                characterTextures[cacheKey] = texture; // Cache the loaded texture
                 resolve(texture);
             },
             undefined,
             (err) => {
                 console.error(`Failed to load texture: ${texturePath}`, err);
-                characterTextures[cacheKey] = null;
+                characterTextures[cacheKey] = null; // Cache the failure explicitly
                 
-                // Try fallback textures
+                // Try fallback textures (resolve with the promise from the fallback call)
                 if (angle === 'f') {
                     console.log(`Attempting to load back texture as fallback for character ${characterId}`);
                     resolve(getCharacterTexture(characterId, 'b'));
+                } else if (characterId !== 1 && angle !== 'b') { // Fallback to 'b' before falling back to char 1
+                     console.log(`Attempting to load back texture as fallback before char 1 for ${characterId}`);
+                     resolve(getCharacterTexture(characterId, 'b'));
                 } else if (characterId !== 1) {
                     console.log(`Attempting to use character 1 as fallback for character ${characterId}`);
-                    resolve(getCharacterTexture(1, angle));
+                    resolve(getCharacterTexture(1, angle)); 
                 } else {
-                    reject(err);
+                    resolve(null); // Final fallback: resolve with null
                 }
             }
         );
+    });
+    
+    characterTextures[cacheKey] = loadingPromise; // Store the promise itself
+    return loadingPromise;
+}
+
+// Function to preload essential character textures
+function preloadCharacterTextures() {
+    console.log("Preloading essential character textures...");
+    Object.keys(characters).forEach(id => {
+        getCharacterTexture(id, 'f'); // Preload front-facing texture
+        // Optionally preload 'b' as well if needed frequently at start
+        // getCharacterTexture(id, 'b');
     });
 }
 
@@ -339,6 +365,7 @@ function setupCharacterSelection() {
     });
     console.log("Finished character selection loop.");
     selectCharacter(selectedCharacterIndex);
+    preloadCharacterTextures(); // <<< ADD: Start preloading after setting up selection
 }
 
 function updateCharacterSelectionHighlight() {
@@ -629,23 +656,28 @@ function addPlayerObject(playerId, playerData) {
     // Now try to load the actual texture asynchronously
     getCharacterTexture(characterId, initialAngleCode)
         .then(texture => {
-            if (texture && playerObjects[playerId]) { // Check if player still exists
-                const material = new THREE.SpriteMaterial({
-                    map: texture,
-                    transparent: true,
-                    alphaTest: 0.1,
-                });
-                playerObjects[playerId].material = material; // Replace material
-                playerObjects[playerId].material.needsUpdate = true;
-                console.log(`Successfully applied texture for player ${playerId} (char ${characterId})`);
-            } else if (playerObjects[playerId]) {
-                 console.warn(`Texture resolved as null/falsy for player ${playerId} (char ${characterId}), keeping fallback.`);
+            // No need to check if playerObjects[playerId] here, promise resolves quickly if cached
+            if (texture) { 
+                // Only create/assign if the sprite hasn't been removed in the meantime
+                const sprite = playerObjects[playerId]; 
+                if(sprite) { 
+                    const material = new THREE.SpriteMaterial({
+                        map: texture,
+                        transparent: true,
+                        alphaTest: 0.1,
+                    });
+                    sprite.material = material; // Replace material
+                    sprite.material.needsUpdate = true;
+                    // console.log(`Successfully applied texture for player ${playerId} (char ${characterId})`); // Reduce logs
+                }
+            } else {
+                // Only log if the sprite still exists
+                if(playerObjects[playerId]) {
+                     console.warn(`Texture resolved as null/falsy for player ${playerId} (char ${characterId}), keeping fallback.`);
+                }
             }
-        })
-        .catch(err => {
-            console.error(`Cannot load initial texture for player ${playerId} (char ${characterId}), keeping fallback. Error:`, err);
-        });
-
+        }); // No .catch needed here, getCharacterTexture handles errors internally by resolving null
+        
     // Create visual effects (flame, particles)
     createPlayerVisualEffects(playerId, sprite);
 }
@@ -1178,25 +1210,27 @@ function updatePlayerSpriteAngle(playerId, sprite, playerData) {
     const newAngleCode = characterSpriteAngles[newAngleIndex];
 
     if (newAngleCode !== sprite.userData.currentAngleCode) {
-        sprite.userData.currentAngleCode = newAngleCode; // Update code immediately to prevent repeated loads
+        const currentDesiredAngle = newAngleCode; // Store the angle we want NOW
+        sprite.userData.currentAngleCode = currentDesiredAngle; // Update code immediately
 
-        getCharacterTexture(sprite.userData.characterId, newAngleCode)
+        getCharacterTexture(sprite.userData.characterId, currentDesiredAngle)
             .then(newTexture => {
-                // Check if the player and sprite still exist and if the angle is still the desired one
-                if (playerObjects[playerId] && sprite && sprite.userData.currentAngleCode === newAngleCode) {
+                // CRITICAL CHECK: Ensure the sprite still exists AND the angle we WANT is STILL the one we just loaded
+                if (playerObjects[playerId] && sprite && sprite.userData.currentAngleCode === currentDesiredAngle) {
                     if (newTexture) {
-                        sprite.material.map = newTexture;
-                        sprite.material.needsUpdate = true;
+                        // Avoid unnecessary updates if map is already correct (can happen with fast toggles)
+                        if (sprite.material.map !== newTexture) {
+                             sprite.material.map = newTexture;
+                             sprite.material.needsUpdate = true;
+                        }
                     } else {
-                        // Optional: Set to a fallback/placeholder if texture load failed?
-                        console.warn(`Texture resolved as null/falsy for angle ${newAngleCode} player ${playerId}`);
+                        console.warn(`Texture resolved as null/falsy for angle ${currentDesiredAngle} player ${playerId}`);
+                        // If texture failed, consider reverting to a known good texture (like 'b')?
+                        // Or just leave the current (potentially wrong angle) texture?
+                        // For now, do nothing, keep the fallback or previous texture.
                     }
                 }
-            })
-            .catch(err => {
-                console.error(`Failed to get texture for angle ${newAngleCode} player ${playerId}:`, err);
-                // Optional: Handle error, maybe revert angle code or use fallback
-            });
+            }); // No .catch needed
     }
 }
 
@@ -1316,9 +1350,9 @@ function createCourse(courseData) {
         const material = new THREE.MeshBasicMaterial({
             map: texture,
             transparent: true,
-            depthWrite: false, // Terrain shouldn't obscure things on top
-            polygonOffset: true, // Enable polygon offset
-            polygonOffsetFactor: -1.0, // Push terrain back slightly
+            depthWrite: true, // <<< CHANGE: Terrain SHOULD write depth
+            polygonOffset: true, 
+            polygonOffsetFactor: -1.0, 
             polygonOffsetUnits: -4.0
         });
         
@@ -1351,9 +1385,9 @@ function createCourse(courseData) {
         const material = new THREE.MeshBasicMaterial({
             map: texture,
             transparent: true,
-            depthWrite: false, // Road shouldn't obscure decorations
+            depthWrite: true, // <<< CHANGE: Road SHOULD write depth
             polygonOffset: true,
-            polygonOffsetFactor: -0.8, // Push road back, but less than terrain
+            polygonOffsetFactor: -0.8, 
             polygonOffsetUnits: -3.0
         });
 
@@ -1386,7 +1420,7 @@ function createCourse(courseData) {
         const material = new THREE.MeshBasicMaterial({
             map: texture,
             transparent: true,
-            depthWrite: false, // Obstacles shouldn't obscure decorations usually
+            depthWrite: false, // Obstacles (like mud) might be okay without depth write if transparency is key
             polygonOffset: true,
             polygonOffsetFactor: -0.6,
             polygonOffsetUnits: -2.0
@@ -1420,9 +1454,9 @@ function createCourse(courseData) {
         
         const material = new THREE.MeshBasicMaterial({
             map: texture,
-            transparent: true,
-            depthWrite: true, // Decorations are usually opaque and on top
-            polygonOffset: false // No offset needed for the top layer
+            transparent: true, // Decorations might need transparency
+            depthWrite: false, // <<< CHANGE: Decorations likely overlay, don't write depth
+            polygonOffset: false 
         });
         // No repeat needed for decorations usually
 
