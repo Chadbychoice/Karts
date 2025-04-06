@@ -222,54 +222,55 @@ function preloadAssets() {
 
 function getCharacterTexture(characterId, angle = 'b') {
     const cacheKey = `${characterId}_${angle}`;
-    if (!characterTextures[cacheKey]) {
-        const character = characters[characterId];
-        if (!character) {
-            console.error(`Invalid characterId: ${characterId}`);
-            return null;
-        }
+    
+    // Return cached texture if available
+    if (characterTextures[cacheKey] && characterTextures[cacheKey] !== null) {
+        return characterTextures[cacheKey];
+    }
 
-        const textureLoader = new THREE.TextureLoader();
-        textureLoader.crossOrigin = 'anonymous';
+    const character = characters[characterId];
+    if (!character) {
+        console.error(`Invalid characterId: ${characterId}`);
+        return null;
+    }
 
-        // Construct the texture path without double slashes
-        const texturePath = `${ASSET_BASE_URL}/${character.baseSpritePath}/${characterId}${angle}.png`;
-        console.log('Loading texture:', texturePath);
-        
+    // Create a new texture loader for each request to avoid CORS issues
+    const textureLoader = new THREE.TextureLoader();
+    textureLoader.crossOrigin = 'anonymous';
+
+    // Construct the texture path without double slashes
+    const texturePath = `${ASSET_BASE_URL}/${character.baseSpritePath}/${characterId}${angle}.png`.replace(/([^:]\/)\/+/g, "$1");
+    console.log('Loading texture:', texturePath);
+    
+    // Create a promise to handle texture loading
+    return new Promise((resolve, reject) => {
         characterTextures[cacheKey] = textureLoader.load(
             texturePath,
             (texture) => {
                 texture.magFilter = THREE.NearestFilter;
                 texture.minFilter = THREE.NearestFilter;
                 console.log(`Successfully loaded texture: ${texturePath}`);
+                characterTextures[cacheKey] = texture;
+                resolve(texture);
             },
             undefined,
             (err) => {
                 console.error(`Failed to load texture: ${texturePath}`, err);
-                console.error('Full error details:', err);
                 characterTextures[cacheKey] = null;
-                // If front texture fails to load, try loading back texture as fallback
+                
+                // Try fallback textures
                 if (angle === 'f') {
-                    console.log(`Attempting to load fallback texture for character ${characterId}`);
-                    getCharacterTexture(characterId, 'b');
+                    console.log(`Attempting to load back texture as fallback for character ${characterId}`);
+                    resolve(getCharacterTexture(characterId, 'b'));
+                } else if (characterId !== 1) {
+                    console.log(`Attempting to use character 1 as fallback for character ${characterId}`);
+                    resolve(getCharacterTexture(1, angle));
+                } else {
+                    reject(err);
                 }
             }
         );
-    }
-
-    // If texture failed to load, try a different angle or return null
-    if (!characterTextures[cacheKey]) {
-        if (angle !== 'b') {
-            console.log(`Attempting to use back texture as fallback for ${characterId}_${angle}`);
-            return getCharacterTexture(characterId, 'b');
-        }
-        // If even the back texture is missing, try character 1 as fallback
-        if (characterId !== 1) {
-            console.log(`Attempting to use character 1 as fallback for missing character ${characterId}`);
-            return getCharacterTexture(1, angle);
-        }
-    }
-    return characterTextures[cacheKey];
+    });
 }
 
 // Preload default textures (e.g., back view) for smoother start?
@@ -289,6 +290,7 @@ function setupCharacterSelection() {
     console.log("Characters data:", characters);
     characterIds = Object.keys(characters).map(Number);
     console.log("Character IDs:", characterIds);
+    
     characterIds.forEach((id, index) => {
         console.log(`[Loop ${index}] Processing character ID: ${id}`);
         const char = characters[id];
@@ -297,6 +299,7 @@ function setupCharacterSelection() {
             console.error(`[Loop ${index}] Character data not found for ID: ${id}`);
             return;
         }
+        
         const slot = document.createElement('div');
         slot.classList.add('character-slot');
         slot.dataset.characterId = id;
@@ -305,16 +308,25 @@ function setupCharacterSelection() {
 
         const preview = document.createElement('img');
         preview.classList.add('character-preview');
-        const previewTexturePath = `${ASSET_BASE_URL}/${char.baseSpritePath}/${id}f.png`;
+        const previewTexturePath = `${ASSET_BASE_URL}/${char.baseSpritePath}/${id}f.png`.replace(/([^:]\/)\/+/g, "$1");
         console.log(`[Loop ${index}] Preview image path:`, previewTexturePath);
-        preview.src = previewTexturePath;
-        preview.alt = char.name;
-        preview.onerror = () => {
-            console.error(`[Loop ${index}] ERROR loading preview image: ${preview.src}`);
+        
+        // Create a temporary Image object to test loading
+        const tempImg = new Image();
+        tempImg.onload = () => {
+            preview.src = previewTexturePath;
+            preview.style.backgroundColor = '';
+            preview.style.border = '';
+        };
+        tempImg.onerror = () => {
+            console.error(`[Loop ${index}] ERROR loading preview image: ${previewTexturePath}`);
             preview.alt = `${char.name} (Image Missing)`;
             preview.style.backgroundColor = '#555';
             preview.style.border = '1px dashed white';
         };
+        tempImg.src = previewTexturePath;
+        
+        preview.alt = char.name;
         console.log(`[Loop ${index}] Created preview image element:`, preview);
         slot.appendChild(preview);
 
@@ -357,19 +369,45 @@ function startCharacterRotation(imgElement, characterData) {
     stopCharacterRotation(imgElement, intervalKey);
 
     let currentAngleIndex = 0;
-    const characterId = characterData.baseSpritePath.split('/').pop();
-    const texturePath = `${ASSET_BASE_URL}/${characterData.baseSpritePath}/${characterId}${characterSpriteAngles[currentAngleIndex]}.png`;
-    imgElement.src = texturePath;
+    const characterId = imgElement.parentElement.dataset.characterId;
+    
+    // Load the first texture
+    const texturePath = `${ASSET_BASE_URL}/${characterData.baseSpritePath}/${characterId}${characterSpriteAngles[currentAngleIndex]}.png`.replace(/([^:]\/)\/+/g, "$1");
+    console.log('Starting rotation with path:', texturePath);
+    
+    // Create a temporary Image object to test loading
+    const tempImg = new Image();
+    tempImg.onload = () => {
+        imgElement.src = texturePath;
+        imgElement.style.backgroundColor = '';
+        imgElement.style.border = '';
+    };
+    tempImg.onerror = () => {
+        console.warn(`Initial sprite not found: ${texturePath}`);
+        imgElement.style.backgroundColor = '#555';
+        imgElement.style.border = '1px dashed white';
+        stopCharacterRotation(imgElement, intervalKey);
+    };
+    tempImg.src = texturePath;
 
     rotationIntervals[intervalKey] = setInterval(() => {
         currentAngleIndex = (currentAngleIndex + 1) % characterSpriteAngles.length;
-        const nextSrc = `${ASSET_BASE_URL}/${characterData.baseSpritePath}/${characterId}${characterSpriteAngles[currentAngleIndex]}.png`;
-        imgElement.src = nextSrc;
-        imgElement.onerror = () => {
-            console.warn(`Sprite not found during rotation: ${imgElement.src}`);
-            stopCharacterRotation(imgElement, intervalKey);
-            imgElement.style.backgroundColor = '#555';
+        const nextSrc = `${ASSET_BASE_URL}/${characterData.baseSpritePath}/${characterId}${characterSpriteAngles[currentAngleIndex]}.png`.replace(/([^:]\/)\/+/g, "$1");
+        
+        // Create a temporary Image object to test loading
+        const nextTempImg = new Image();
+        nextTempImg.onload = () => {
+            imgElement.src = nextSrc;
+            imgElement.style.backgroundColor = '';
+            imgElement.style.border = '';
         };
+        nextTempImg.onerror = () => {
+            console.warn(`Sprite not found during rotation: ${nextSrc}`);
+            imgElement.style.backgroundColor = '#555';
+            imgElement.style.border = '1px dashed white';
+            stopCharacterRotation(imgElement, intervalKey);
+        };
+        nextTempImg.src = nextSrc;
     }, 150);
 }
 
@@ -2055,5 +2093,47 @@ function updatePlayerPosition(playerId, position, rotation) {
     if (rotation) {
         players[playerId].rotation = rotation;
     }
+}
+
+function updatePlayerMesh(playerId, characterId, angle) {
+    if (!playerObjects[playerId]) {
+        console.error(`No mesh found for player ${playerId}`);
+        return;
+    }
+
+    getCharacterTexture(characterId, angle)
+        .then(texture => {
+            if (texture) {
+                playerObjects[playerId].material.map = texture;
+                playerObjects[playerId].material.needsUpdate = true;
+            }
+        })
+        .catch(err => {
+            console.error(`Failed to update player mesh texture for player ${playerId}:`, err);
+        });
+}
+
+function createPlayerMesh(playerId, characterId) {
+    const geometry = new THREE.PlaneGeometry(1, 1);
+    const material = new THREE.MeshBasicMaterial({
+        transparent: true,
+        side: THREE.DoubleSide
+    });
+
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.y = 0.5; // Half the height to align bottom with ground
+
+    getCharacterTexture(characterId, 'f')
+        .then(texture => {
+            if (texture) {
+                material.map = texture;
+                material.needsUpdate = true;
+            }
+        })
+        .catch(err => {
+            console.error(`Failed to load initial texture for player ${playerId}:`, err);
+        });
+
+    return mesh;
 }
 
