@@ -113,10 +113,10 @@ app.get('/api/courses/:id', (req, res) => {
 
 // Game state
 const gameState = {
-    state: 'character-selection', // Start in character selection instead of racing
+    state: 'character-selection',
     players: {},
     readyPlayers: new Set(),
-    currentCourse: 'test'
+    currentCourse: 'rushing'
 };
 
 // Add collision detection
