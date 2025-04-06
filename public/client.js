@@ -1396,10 +1396,9 @@ function createCourse(courseData) {
     }
     
     function addStripe(x, z, angle) { 
-        // <<< REVERTED: Use flip texture for BOTH orientations based on feedback >>>
+        // <<< REVERTING: Select texture based on angle - Original Logic >>>
         const isHorizontal = (angle === 0);
-        // const stripeTextureKey = isHorizontal ? '/textures/stripedlineflip.png' : '/textures/stripedline.png'; 
-        const stripeTextureKey = '/textures/stripedlineflip.png'; // Try using flip for both
+        const stripeTextureKey = isHorizontal ? '/textures/stripedline.png' : '/textures/stripedlineflip.png'; 
         
         const stripeTexture = textures[stripeTextureKey];
         if (!stripeTexture) {
