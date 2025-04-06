@@ -535,6 +535,13 @@ socket.on('updateGameState', (state, serverPlayers, options) => {
     console.log('Received game state update:', state, options); // Log received options
     currentGameState = state;
     players = serverPlayers || {}; // Ensure players is initialized even if empty
+    
+    // <<< STORE received editor tiles >>>
+    if (options?.editorTiles) {
+        currentCourseEditorTiles = options.editorTiles;
+    } else {
+        currentCourseEditorTiles = []; // Clear if not received
+    }
 
     if (state === 'racing') {
         console.log('Racing state detected. Players:', players);
@@ -1356,11 +1363,13 @@ function createCourse(courseData) {
     // Define render order offsets
     const RENDER_ORDER_TERRAIN = 0;
     const RENDER_ORDER_ROAD = 1;
-    const RENDER_ORDER_OBSTACLE = 2;
-    const RENDER_ORDER_DECORATION = 3;
+    const RENDER_ORDER_STRIPE = 2; // <<< ADDED Stripe Layer
+    const RENDER_ORDER_OBSTACLE = 3;
+    const RENDER_ORDER_DECORATION = 4;
 
     const Y_OFFSET_TERRAIN = 0.00;
     const Y_OFFSET_ROAD = 0.01;
+    const Y_OFFSET_STRIPE = 0.015; // <<< ADDED Stripe Y-Offset (slightly above road)
     const Y_OFFSET_OBSTACLE = 0.02;
     const Y_OFFSET_DECORATION = 0.03;
 
@@ -1376,8 +1385,47 @@ function createCourse(courseData) {
         // <<< REMOVED 'startgate'
     ]);
     // <<< FIXED: Use fixed world sizes for sprites, not undefined EDITOR_TILE_SIZE >>>
-    const obstacleSpriteScale = 4; // <<< REDUCED scale further
+    const obstacleSpriteScale = 3; // <<< REDUCED scale further again
     const decorationSpriteScale = 25; // Base scale for decoration sprites (adjust as needed)
+
+    // --- Helper Function for Stripes --- 
+    function getTileFromGrid(x, y, editorTileGrid) { // <<< Takes editor tile grid
+        if (!editorTileGrid) return null;
+        // Find the tile in the flat array 
+        return editorTileGrid.find(t => t.x === x && t.y === y);
+    }
+    
+    function addStripe(x, z, angle, flipped = false) {
+        const stripeTextureKey = flipped ? '/textures/stripedlineflip.png' : '/textures/stripedline.png';
+        const stripeTexture = textures[stripeTextureKey];
+        if (!stripeTexture) {
+            console.warn(`Stripe texture missing: ${stripeTextureKey}`);
+            return;
+        }
+        const stripeWidth = 1; // Width of the stripe texture itself
+        const stripeLength = 25; // Use fixed length matching server tile size
+        const geometry = new THREE.PlaneGeometry(stripeLength, stripeWidth);
+        geometry.rotateX(-Math.PI / 2); // Lay flat
+        geometry.rotateY(angle); // Rotate around Y
+        
+        const material = new THREE.MeshBasicMaterial({
+            map: stripeTexture,
+            transparent: true,
+            depthWrite: false, // Stripes shouldn't obscure things
+            depthTest: true, 
+             polygonOffset: true, // Offset to fight Z-fighting with road
+             polygonOffsetFactor: -0.2,
+             polygonOffsetUnits: -0.5
+        });
+        
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.set(x, Y_OFFSET_STRIPE, z); // Position slightly above road
+        mesh.renderOrder = RENDER_ORDER_STRIPE;
+        mesh.userData = { isCourseElement: true, type: 'stripe' };
+        scene.add(mesh);
+        currentCourseObjects.push(mesh);
+    }
+    // --- End Helper --- 
 
     // Add terrain elements first (lowest layer)
     safeCourseData.terrain.forEach(terrain => {
@@ -1447,6 +1495,33 @@ function createCourse(courseData) {
         mesh.userData = { isCourseElement: true, type: 'road' };
         scene.add(mesh);
         currentCourseObjects.push(mesh);
+
+        // --- Calculate Stripe Positions based on Neighbors --- 
+        // Reverse calculate grid coordinates from world coordinates
+        const TILE_SIZE_ON_CLIENT = 25; // Need the same scale factor used on server
+        const GRID_WIDTH_ON_CLIENT = 40; 
+        const GRID_HEIGHT_ON_CLIENT = 30;
+        
+        const xGrid = Math.round((roadSegment.x / TILE_SIZE_ON_CLIENT) + GRID_WIDTH_ON_CLIENT / 2);
+        const yGrid = Math.round((roadSegment.z / TILE_SIZE_ON_CLIENT) + GRID_HEIGHT_ON_CLIENT / 2);
+
+        const neighbors = {
+            n: getTileFromGrid(xGrid, yGrid - 1, currentCourseEditorTiles),
+            s: getTileFromGrid(xGrid, yGrid + 1, currentCourseEditorTiles),
+            e: getTileFromGrid(xGrid + 1, yGrid, currentCourseEditorTiles),
+            w: getTileFromGrid(xGrid - 1, yGrid, currentCourseEditorTiles)
+        };
+        
+        // Check if neighbor tile is a road type from the editor data
+        const isRoad = (t) => t && (t.type?.startsWith('road_') || t.type === 'startfinish');
+
+        const halfTile = TILE_SIZE_ON_CLIENT / 2;
+        
+        // Add stripes based on neighbor checks
+        if (!isRoad(neighbors.n)) addStripe(roadSegment.x, roadSegment.z - halfTile, 0); 
+        if (!isRoad(neighbors.s)) addStripe(roadSegment.x, roadSegment.z + halfTile, 0, true);
+        if (!isRoad(neighbors.w)) addStripe(roadSegment.x - halfTile, roadSegment.z, Math.PI / 2);
+        if (!isRoad(neighbors.e)) addStripe(roadSegment.x + halfTile, roadSegment.z, Math.PI / 2, true);
     });
 
     // Add obstacles (could be ground textures like mud or sprites like blocks)
@@ -2341,4 +2416,92 @@ function createPlayerMesh(playerId, characterId) {
 
     return mesh;
 }
+
+// --- Player Visual Effects --- 
+// const playerSpriteScale = 5; // <<< REMOVED: Already declared elsewhere
+const flameOffset = new THREE.Vector3(0, -0.5, -0.6); 
+const flameScale = 1.5; 
+const playerEffects = {}; 
+
+function createFlame(playerId) {
+    if (flameTextures.length === 0) return null;
+    const geometry = new THREE.BufferGeometry(); // Use buffer geometry for potential future optimizations
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3)); // Single point for sprite
+
+    const material = new THREE.SpriteMaterial({
+        map: flameTextures[0], // Start with first frame
+        color: 0xffffff, // White base color
+        transparent: true,
+        blending: THREE.AdditiveBlending, // Make flames bright
+        depthWrite: false, // <<< ADDED: Don't write depth
+        depthTest: false, // <<< ADDED: Don't test depth
+        renderOrder: 5 // <<< ADDED: Render flames on top
+    });
+
+    const sprite = new THREE.Sprite(material);
+    sprite.scale.set(flameScale, flameScale, flameScale);
+    sprite.visible = false; // Start hidden
+    return sprite;
+}
+
+function updateFlameAnimation(playerId, boostLevel) {
+    if (playerEffects[playerId] && playerEffects[playerId].flameSprite) {
+        const sprite = playerEffects[playerId].flameSprite;
+        const frameCount = flameTextures.length;
+        const frameIndex = Math.floor(Math.random() * frameCount); // Simple random flicker
+        sprite.material.map = flameTextures[frameIndex];
+        sprite.material.needsUpdate = true;
+        sprite.visible = boostLevel > 0; // Show if boosting
+    }
+}
+
+// Drift particle settings
+const PARTICLE_COUNT = 50;
+const DRIFT_PARTICLE_LIFETIME = 500; // Milliseconds
+const DRIFT_PARTICLE_SIZE = 0.3;
+
+function createDriftParticles(playerId) {
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(PARTICLE_COUNT * 3);
+    const lifetimes = new Float32Array(PARTICLE_COUNT);
+    const velocities = new Float32Array(PARTICLE_COUNT * 3);
+
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+        positions[i * 3] = 0;
+        positions[i * 3 + 1] = 0;
+        positions[i * 3 + 2] = 0;
+        lifetimes[i] = 0; // Start dead
+        velocities[i * 3] = 0;
+        velocities[i * 3 + 1] = 0;
+        velocities[i * 3 + 2] = 0;
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('lifetime', new THREE.BufferAttribute(lifetimes, 1));
+    geometry.setAttribute('velocity', new THREE.BufferAttribute(velocities, 3));
+
+    // Choose a random spark texture for variety, or use a specific one
+    const sparkTextureIndex = Math.floor(Math.random() * 5) + 1;
+    const sparkTexturePath = `/Sprites/sparks/spark${sparkTextureIndex}.png`;
+    const sparkTexture = textures[sparkTexturePath];
+
+    const particleMaterial = new THREE.PointsMaterial({
+        size: DRIFT_PARTICLE_SIZE,
+        map: sparkTexture || textures['/Sprites/sparks/spark1.png'], // Fallback to spark1
+        sizeAttenuation: true,
+        transparent: true,
+        blending: THREE.AdditiveBlending, // Additive blending for bright sparks
+        depthWrite: false, // <<< ADDED: Don't write depth
+        depthTest: false, // <<< ADDED: Don't test depth
+        renderOrder: 5 // <<< ADDED: Render sparks on top
+    });
+
+    const particles = new THREE.Points(geometry, particleMaterial);
+    particles.userData.lastEmitTime = 0;
+    particles.frustumCulled = false; // Ensure particles are always considered for rendering
+    return particles;
+}
+
+// --- Global variable to store received editor tiles ---
+let currentCourseEditorTiles = [];
 

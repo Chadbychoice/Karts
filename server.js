@@ -170,7 +170,9 @@ async function loadCourses() {
                     const editorData = JSON.parse(rawData);
                     const translatedData = translateEditorDataToCourseData(editorData);
                     if (translatedData) {
-                        courses[courseId] = translatedData; // Store translated data
+                        // Store original tiles with translated data
+                        translatedData.rawEditorTiles = editorData.tiles;
+                        courses[courseId] = translatedData; 
                         console.log(`Loaded and translated course: ${courseId}`);
                     } else {
                          console.error(`Failed to translate course data for ${file}`);
@@ -223,6 +225,8 @@ async function loadCourses() {
         };
         const defaultTranslated = translateEditorDataToCourseData(defaultEditorData);
          if (defaultTranslated) {
+             // Store original default tiles
+             defaultTranslated.rawEditorTiles = defaultEditorData.tiles;
              courses['test'] = defaultTranslated;
              console.log("Created default 'test' course from translated structure.");
          } else {
@@ -434,7 +438,8 @@ io.on('connection', (socket) => {
     // Send initial state to new player
     socket.emit('updateGameState', gameState.state, gameState.players, {
         courseId: gameState.currentCourse,
-        courseData: currentValidCourse
+        courseData: currentValidCourse,
+        editorTiles: courses[gameState.currentCourse]?.rawEditorTiles
     });
 
     // Handle character selection
@@ -472,7 +477,8 @@ io.on('connection', (socket) => {
             console.log(`Emitting updateGameState: ${gameState.state} with course data for ${gameState.currentCourse}`);
             io.emit('updateGameState', gameState.state, gameState.players, {
                 courseId: gameState.currentCourse,
-                courseData: courseToSend
+                courseData: courseToSend,
+                editorTiles: courses[gameState.currentCourse]?.rawEditorTiles
             });
             
             // Log if state changed for clarity
@@ -596,7 +602,8 @@ io.on('connection', (socket) => {
             await fs.writeFile(filePath, JSON.stringify(data, null, 2)); 
             console.log(`Successfully saved ORIGINAL editor course data to ${filePath}`);
             
-            // Update in-memory courses object with the TRANSLATED data
+            // Store original tiles alongside translated data in memory
+            translatedData.rawEditorTiles = data.tiles;
             courses[safeBaseName] = translatedData; 
             
             socket.emit('editorSaveConfirm', { success: true, name: safeBaseName });
