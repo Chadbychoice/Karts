@@ -262,7 +262,7 @@ function getCharacterTexture(characterId, angle = 'b') {
 
     const character = characters[characterId];
     if (!character) {
-        console.error(`Invalid characterId: ${characterId}`);
+            console.error(`Invalid characterId: ${characterId}`);
         return Promise.resolve(null); // Return resolved null promise
     }
 
@@ -361,15 +361,15 @@ function setupCharacterSelection() {
         // Create a temporary Image object to test loading
         const tempImg = new Image();
         tempImg.onload = () => {
-            preview.src = previewTexturePath;
+        preview.src = previewTexturePath;
             preview.style.backgroundColor = '';
             preview.style.border = '';
         };
         tempImg.onerror = (event) => { // Add event parameter
             console.error(`[Loop ${index}] ERROR loading preview image: ${previewTexturePath}`, event); // Log the event object
             preview.alt = `${char.name} (Image Missing)`;
-            preview.style.backgroundColor = '#555';
-            preview.style.border = '1px dashed white';
+           preview.style.backgroundColor = '#555';
+           preview.style.border = '1px dashed white';
         };
         tempImg.src = previewTexturePath;
         
@@ -401,12 +401,12 @@ function updateCharacterSelectionHighlight() {
         } else {
             slot.classList.remove('selected');
             stopCharacterRotation(imgElement); // Pass the specific img element to stop its rotation
-            // Reset non-selected to front view
-            const charId = slot.dataset.characterId;
-            if (characters[charId] && imgElement) {
+             // Reset non-selected to front view
+             const charId = slot.dataset.characterId;
+             if (characters[charId] && imgElement) {
                 imgElement.src = `${ASSET_BASE_URL}/${characters[charId].baseSpritePath}/${charId}f.png`;
-                imgElement.onerror = () => { imgElement.style.backgroundColor = '#555'; }; // Reset error state too
-            }
+                 imgElement.onerror = () => { imgElement.style.backgroundColor = '#555'; }; // Reset error state too
+             }
         }
     });
 }
@@ -445,7 +445,7 @@ function startCharacterRotation(imgElement, characterData) {
         // Create a temporary Image object to test loading
         const nextTempImg = new Image();
         nextTempImg.onload = () => {
-            imgElement.src = nextSrc;
+        imgElement.src = nextSrc;
             imgElement.style.backgroundColor = '';
             imgElement.style.border = '';
         };
@@ -453,7 +453,7 @@ function startCharacterRotation(imgElement, characterData) {
             console.warn(`Sprite not found during rotation: ${nextSrc}`, event); // Log the event object
             imgElement.style.backgroundColor = '#555';
             imgElement.style.border = '1px dashed white';
-            stopCharacterRotation(imgElement, intervalKey);
+             stopCharacterRotation(imgElement, intervalKey);
         };
         nextTempImg.src = nextSrc;
     }, 150);
@@ -548,7 +548,7 @@ socket.on('updateGameState', (state, serverPlayers, options) => {
             initializeRaceScene(players, options); // options might still be needed for start positions etc.
             raceInitialized = true;
            
-        } else {
+    } else {
              console.log("Race already initialized, updating players only.");
               // Update players even if race was already initialized
              updatePlayerObjects(); // Use the function to add/update players
@@ -567,14 +567,14 @@ socket.on('playerJoined', (playerId, playerData) => {
     // Add visual object only if the race scene is active
     if (currentGameState === 'racing' && playerData.characterId) {
         console.log('Adding player object for new player:', playerId, playerData);
-        addPlayerObject(playerId, playerData);
+         addPlayerObject(playerId, playerData);
     }
 });
 
 socket.on('playerLeft', (playerId) => {
     console.log('Player left:', playerId);
     if (playerObjects[playerId]) {
-        removePlayerObject(playerId); // Remove visual object if it exists
+    removePlayerObject(playerId); // Remove visual object if it exists
     }
     delete players[playerId]; // Remove from local cache
 });
@@ -638,8 +638,8 @@ function addPlayerObject(playerId, playerData) {
     if (playerObjects[playerId]) return; // Already exists
     if (!playerData.characterId) {
         console.warn(`Player ${playerId} has no characterId, cannot create sprite.`);
-        return;
-    }
+             return;
+        }
 
     const characterId = playerData.characterId;
     const initialAngleCode = 'b'; // Default to back view
@@ -647,25 +647,25 @@ function addPlayerObject(playerId, playerData) {
     // Create fallback sprite material first
     const fallbackMaterial = new THREE.SpriteMaterial({
         color: 0x888888, // Grey fallback color
-        transparent: true,
+            transparent: true,
         alphaTest: 0.1
-    });
+        });
     const sprite = new THREE.Sprite(fallbackMaterial);
-    sprite.scale.set(playerSpriteScale, playerSpriteScale, playerSpriteScale);
-    sprite.userData = { characterId: characterId, currentAngleCode: initialAngleCode };
+        sprite.scale.set(playerSpriteScale, playerSpriteScale, playerSpriteScale);
+        sprite.userData = { characterId: characterId, currentAngleCode: initialAngleCode };
     playerObjects[playerId] = sprite;
 
-    if (playerData.position) {
+        if (playerData.position) {
         sprite.position.set(
             playerData.position.x,
             playerData.position.y + playerSpriteScale / 2, // Use correct height
             playerData.position.z
         );
-    } else {
+        } else {
         sprite.position.set(0, playerSpriteScale / 2, 0); // Default position with height
-        console.warn(`Player ${playerId} created without initial position.`);
-    }
-    scene.add(sprite);
+             console.warn(`Player ${playerId} created without initial position.`);
+        }
+        scene.add(sprite);
     console.log(`Added fallback sprite for player ${playerId} (char ${characterId})`);
 
     // Now try to load the actual texture asynchronously
@@ -1235,8 +1235,8 @@ function updatePlayerSpriteAngle(playerId, sprite, playerData) {
                     if (newTexture) {
                         // Avoid unnecessary updates if map is already correct (can happen with fast toggles)
                         if (sprite.material.map !== newTexture) {
-                             sprite.material.map = newTexture;
-                             sprite.material.needsUpdate = true;
+            sprite.material.map = newTexture;
+            sprite.material.needsUpdate = true;
                         }
                     } else {
                         console.warn(`Texture resolved as null/falsy for angle ${currentDesiredAngle} player ${playerId}`);
@@ -1375,8 +1375,9 @@ function createCourse(courseData) {
         'tireswhite',
         'startgate' // Start gate should also be a sprite
     ]);
-    const obstacleSpriteScale = EDITOR_TILE_SIZE * 0.8; // Adjust scale as needed
-    const decorationSpriteScale = EDITOR_TILE_SIZE; // Decorations like start gate might be larger
+    // <<< FIXED: Use fixed world sizes for sprites, not undefined EDITOR_TILE_SIZE >>>
+    const obstacleSpriteScale = 20; // Base scale for obstacle sprites (adjust as needed)
+    const decorationSpriteScale = 25; // Base scale for decoration sprites (adjust as needed)
 
     // Add terrain elements first (lowest layer)
     safeCourseData.terrain.forEach(terrain => {
