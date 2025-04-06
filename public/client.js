@@ -1364,6 +1364,20 @@ function createCourse(courseData) {
     const Y_OFFSET_OBSTACLE = 0.02;
     const Y_OFFSET_DECORATION = 0.03;
 
+    // Define which types should be sprites vs. ground planes
+    const spriteElementTypes = new Set([
+        'blueblock',
+        'greenblock',
+        'darkgreenblock',
+        'redblock',
+        'yellowblock',
+        'tiresred',
+        'tireswhite',
+        'startgate' // Start gate should also be a sprite
+    ]);
+    const obstacleSpriteScale = EDITOR_TILE_SIZE * 0.8; // Adjust scale as needed
+    const decorationSpriteScale = EDITOR_TILE_SIZE; // Decorations like start gate might be larger
+
     // Add terrain elements first (lowest layer)
     safeCourseData.terrain.forEach(terrain => {
         const geometry = new THREE.PlaneGeometry(terrain.width, terrain.length);
@@ -1434,75 +1448,109 @@ function createCourse(courseData) {
         currentCourseObjects.push(mesh);
     });
 
-    // Add obstacles (on top of road/terrain)
+    // Add obstacles (could be ground textures like mud or sprites like blocks)
     safeCourseData.obstacles.forEach(obstacle => {
-        const geometry = new THREE.PlaneGeometry(obstacle.width, obstacle.length);
-        geometry.rotateX(-Math.PI / 2);
-        
-        // <<< FIXED PATH: Use /Sprites/courseelements/ path for obstacles >>>
         const texturePath = `/Sprites/courseelements/${obstacle.type}.png`; 
         const texture = textures[texturePath]; // Get from preloaded textures
         if (!texture) {
             console.warn(`Texture not preloaded for obstacle type: ${obstacle.type} at path: ${texturePath}`);
             return;
         }
-        
-        const material = new THREE.MeshBasicMaterial({
-            map: texture,
-            transparent: true,
-            depthWrite: false, 
-            polygonOffset: true,
-            polygonOffsetFactor: -0.6,
-            polygonOffsetUnits: -2.0
-        });
-        
-        // Obstacles usually don't repeat, assume 1x1 mapping for now.
 
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(obstacle.x, Y_OFFSET_OBSTACLE, obstacle.z);
-        mesh.renderOrder = RENDER_ORDER_OBSTACLE;
-        mesh.userData = { isCourseElement: true, type: obstacle.type };
-        scene.add(mesh);
-        currentCourseObjects.push(mesh);
+        let obstacleObject;
+
+        if (spriteElementTypes.has(obstacle.type)) {
+            // --- Create Sprite for Billboarding Obstacles --- 
+            const material = new THREE.SpriteMaterial({
+                map: texture,
+                transparent: true,
+                alphaTest: 0.1, // Adjust if needed for transparency edges
+                depthTest: true, // Sprites should depth test
+                depthWrite: true // Sprites should write depth
+            });
+            obstacleObject = new THREE.Sprite(material);
+            obstacleObject.scale.set(obstacleSpriteScale, obstacleSpriteScale, obstacleSpriteScale);
+            // Position sprite slightly above the obstacle Y offset
+            obstacleObject.position.set(obstacle.x, Y_OFFSET_OBSTACLE + obstacleSpriteScale / 2, obstacle.z);
+            obstacleObject.renderOrder = RENDER_ORDER_OBSTACLE;
+        } else {
+            // --- Create Ground Plane for Non-Sprite Obstacles (like mud) --- 
+            const geometry = new THREE.PlaneGeometry(obstacle.width, obstacle.length);
+            geometry.rotateX(-Math.PI / 2);
+            const material = new THREE.MeshBasicMaterial({
+                map: texture,
+                transparent: true,
+                depthWrite: false, 
+                polygonOffset: true,
+                polygonOffsetFactor: -0.6,
+                polygonOffsetUnits: -2.0
+            });
+            obstacleObject = new THREE.Mesh(geometry, material);
+            obstacleObject.position.set(obstacle.x, Y_OFFSET_OBSTACLE, obstacle.z);
+            obstacleObject.renderOrder = RENDER_ORDER_OBSTACLE;
+        }
+        
+        obstacleObject.userData = { isCourseElement: true, type: obstacle.type };
+        scene.add(obstacleObject);
+        currentCourseObjects.push(obstacleObject);
     });
 
-    // Add decorations (highest layer)
+    // Add decorations (could be ground like finish line or sprites like start gate)
     safeCourseData.decorations.forEach(decoration => {
-        // Use EDITOR_TILE_SIZE from server as default if needed (might need to pass this)
-        const geometry = new THREE.PlaneGeometry(decoration.width || 10, decoration.length || 10); // Use 10 if server value not available 
-        geometry.rotateX(-Math.PI / 2);
-        
-        // <<< FIXED PATH: Use correct path based on type >>>
         let texturePath;
-        if (decoration.type === 'startfinishline') { // Special case for start/finish line
+        let isSprite = spriteElementTypes.has(decoration.type);
+
+        if (decoration.type === 'startfinishline') { 
              texturePath = `/textures/${decoration.type}.png`;
-        } else { // Assume others are in courseelements
+             isSprite = false; // Finish line is ground plane
+        } else { 
              texturePath = `/Sprites/courseelements/${decoration.type}.png`;
         }
 
-        const texture = textures[texturePath]; // Get from preloaded textures
+        const texture = textures[texturePath];
         if (!texture) {
             console.warn(`Texture not preloaded for decoration type: ${decoration.type} at path: ${texturePath}`);
             return;
         }
-        
-        const material = new THREE.MeshBasicMaterial({
-            map: texture,
-            transparent: true, 
-            depthWrite: false, 
-            polygonOffset: false 
-        });
-        // No repeat needed for decorations usually
 
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(decoration.x, Y_OFFSET_DECORATION, decoration.z);
-        if (decoration.rotation) {
-            mesh.rotation.y = decoration.rotation.y;
+        let decorationObject;
+        
+        if (isSprite) {
+            // --- Create Sprite for Billboarding Decorations --- 
+             const scale = (decoration.type === 'startgate') ? decorationSpriteScale : obstacleSpriteScale; // Example: different scale for startgate
+             const material = new THREE.SpriteMaterial({
+                map: texture,
+                transparent: true,
+                alphaTest: 0.1, 
+                depthTest: true,
+                depthWrite: true
+            });
+            decorationObject = new THREE.Sprite(material);
+            decorationObject.scale.set(scale, scale, scale);
+            decorationObject.position.set(decoration.x, Y_OFFSET_DECORATION + scale / 2, decoration.z);
+             decorationObject.renderOrder = RENDER_ORDER_DECORATION; 
+        } else {
+            // --- Create Ground Plane for Non-Sprite Decorations --- 
+            const geometry = new THREE.PlaneGeometry(decoration.width || 10, decoration.length || 10); 
+            geometry.rotateX(-Math.PI / 2);
+            const material = new THREE.MeshBasicMaterial({
+                map: texture,
+                transparent: true, 
+                depthWrite: false, 
+                polygonOffset: false 
+            });
+            decorationObject = new THREE.Mesh(geometry, material);
+            decorationObject.position.set(decoration.x, Y_OFFSET_DECORATION, decoration.z);
+            decorationObject.renderOrder = RENDER_ORDER_DECORATION;
         }
-        mesh.renderOrder = RENDER_ORDER_DECORATION;
-        mesh.userData = { isCourseElement: true, type: decoration.type };
-        scene.add(mesh);
-        currentCourseObjects.push(mesh);
+
+        if (decoration.rotation && !isSprite) { // Apply rotation only to non-sprites (meshes)
+            decorationObject.rotation.y = decoration.rotation.y;
+        }
+        
+        decorationObject.userData = { isCourseElement: true, type: decoration.type };
+        scene.add(decorationObject);
+        currentCourseObjects.push(decorationObject);
     });
 
     console.log(`Course creation completed. Added ${currentCourseObjects.length} elements.`);

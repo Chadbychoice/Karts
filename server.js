@@ -15,7 +15,7 @@ const server = createServer(app);
 const COURSES_DIR = join(__dirname, 'courses');
 
 // Define mapping and constants (could be moved to a config file later)
-const EDITOR_TILE_SIZE = 10; // <<< CHANGED: Increased scale factor
+const EDITOR_TILE_SIZE = 25; // <<< CHANGED: Increased scale factor further
 const EDITOR_GRID_WIDTH = 40; // Match editor.js (needed for centering?)
 const EDITOR_GRID_HEIGHT = 30; // Match editor.js
 
