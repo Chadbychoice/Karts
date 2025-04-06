@@ -1372,11 +1372,11 @@ function createCourse(courseData) {
         'redblock',
         'yellowblock',
         'tiresred',
-        'tireswhite',
-        'startgate' // Start gate should also be a sprite
+        'tireswhite'
+        // <<< REMOVED 'startgate'
     ]);
     // <<< FIXED: Use fixed world sizes for sprites, not undefined EDITOR_TILE_SIZE >>>
-    const obstacleSpriteScale = 20; // Base scale for obstacle sprites (adjust as needed)
+    const obstacleSpriteScale = 8; // <<< REDUCED scale significantly
     const decorationSpriteScale = 25; // Base scale for decoration sprites (adjust as needed)
 
     // Add terrain elements first (lowest layer)
@@ -1465,14 +1465,14 @@ function createCourse(courseData) {
             const material = new THREE.SpriteMaterial({
                 map: texture,
                 transparent: true,
-                alphaTest: 0.1, // Adjust if needed for transparency edges
-                depthTest: true, // Sprites should depth test
-                depthWrite: true // Sprites should write depth
+                alphaTest: 0.1,
+                depthTest: true,
+                depthWrite: true
             });
             obstacleObject = new THREE.Sprite(material);
             obstacleObject.scale.set(obstacleSpriteScale, obstacleSpriteScale, obstacleSpriteScale);
-            // Position sprite slightly above the obstacle Y offset
-            obstacleObject.position.set(obstacle.x, Y_OFFSET_OBSTACLE + obstacleSpriteScale / 2, obstacle.z);
+            // <<< FIXED: Position sprite origin AT the ground offset >>>
+            obstacleObject.position.set(obstacle.x, Y_OFFSET_OBSTACLE, obstacle.z);
             obstacleObject.renderOrder = RENDER_ORDER_OBSTACLE;
         } else {
             // --- Create Ground Plane for Non-Sprite Obstacles (like mud) --- 
@@ -1499,12 +1499,12 @@ function createCourse(courseData) {
     // Add decorations (could be ground like finish line or sprites like start gate)
     safeCourseData.decorations.forEach(decoration => {
         let texturePath;
-        let isSprite = spriteElementTypes.has(decoration.type);
+        let isSprite = spriteElementTypes.has(decoration.type); // startgate is NOT in the set anymore
 
         if (decoration.type === 'startfinishline') { 
              texturePath = `/textures/${decoration.type}.png`;
              isSprite = false; // Finish line is ground plane
-        } else { 
+        } else { // Includes startgate now, which is NOT a sprite
              texturePath = `/Sprites/courseelements/${decoration.type}.png`;
         }
 
@@ -1517,8 +1517,7 @@ function createCourse(courseData) {
         let decorationObject;
         
         if (isSprite) {
-            // --- Create Sprite for Billboarding Decorations --- 
-             const scale = (decoration.type === 'startgate') ? decorationSpriteScale : obstacleSpriteScale; // Example: different scale for startgate
+            // --- Create Sprite for Billboarding Decorations (e.g., future items) --- 
              const material = new THREE.SpriteMaterial({
                 map: texture,
                 transparent: true,
@@ -1527,21 +1526,32 @@ function createCourse(courseData) {
                 depthWrite: true
             });
             decorationObject = new THREE.Sprite(material);
-            decorationObject.scale.set(scale, scale, scale);
-            decorationObject.position.set(decoration.x, Y_OFFSET_DECORATION + scale / 2, decoration.z);
-             decorationObject.renderOrder = RENDER_ORDER_DECORATION; 
+             // Use obstacle scale for any generic decoration sprites for now
+            decorationObject.scale.set(obstacleSpriteScale, obstacleSpriteScale, obstacleSpriteScale); 
+            // Position sprite origin AT the ground offset
+            decorationObject.position.set(decoration.x, Y_OFFSET_DECORATION, decoration.z);
+            decorationObject.renderOrder = RENDER_ORDER_DECORATION; 
         } else {
-            // --- Create Ground Plane for Non-Sprite Decorations --- 
-            const geometry = new THREE.PlaneGeometry(decoration.width || 10, decoration.length || 10); 
+            // --- Create Ground Plane / Static Mesh (Finish Line, Start Gate) --- 
+             // Use specific size for start gate mesh, otherwise default
+            const width = (decoration.type === 'startgate') ? 25 : (decoration.width || 10); 
+            const length = (decoration.type === 'startgate') ? 5 : (decoration.length || 10); // Make start gate less deep
+            const geometry = new THREE.PlaneGeometry(width, length); 
             geometry.rotateX(-Math.PI / 2);
             const material = new THREE.MeshBasicMaterial({
                 map: texture,
                 transparent: true, 
-                depthWrite: false, 
-                polygonOffset: false 
+                // Start gate mesh should write depth, finish line likely should not
+                depthWrite: (decoration.type === 'startgate'), 
+                depthTest: true, // All decorations should depth test
+                polygonOffset: (decoration.type !== 'startgate'), // Offset finish line, but not start gate
+                polygonOffsetFactor: (decoration.type !== 'startgate') ? -0.4 : 0,
+                polygonOffsetUnits: (decoration.type !== 'startgate') ? -1.0 : 0
             });
             decorationObject = new THREE.Mesh(geometry, material);
-            decorationObject.position.set(decoration.x, Y_OFFSET_DECORATION, decoration.z);
+            // Position mesh slightly higher if it's the start gate, otherwise at offset
+            const yPos = (decoration.type === 'startgate') ? Y_OFFSET_DECORATION + 2.5 : Y_OFFSET_DECORATION; // Adjust start gate height if needed
+            decorationObject.position.set(decoration.x, yPos, decoration.z);
             decorationObject.renderOrder = RENDER_ORDER_DECORATION;
         }
 
