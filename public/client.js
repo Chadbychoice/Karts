@@ -778,17 +778,17 @@ function createPlayerVisualEffects(playerId, sprite) {
         driftParticles.visible = false;
     scene.add(driftParticles);
 
-    // Create Road Smoke System
-    const smokeCount = 20;
+    // Create Road Smoke System with adjusted parameters
+    const smokeCount = 30; // Increased particle count
     const smokeGeometry = new THREE.BufferGeometry();
     const smokePositions = new Float32Array(smokeCount * 3);
     smokeGeometry.setAttribute('position', new THREE.BufferAttribute(smokePositions, 3));
     
     const smokeMaterial = new THREE.PointsMaterial({
-        size: 0.5,
+        size: 0.8, // Increased size
         map: smokeTextures[0],
         transparent: true,
-        opacity: 0.6,
+        opacity: 0.4, // Reduced opacity
         depthWrite: false,
         blending: THREE.AdditiveBlending,
     });
@@ -1078,6 +1078,8 @@ function handleDrivingInput() {
     };
     if (!player.rotation) player.rotation = { y: 0 };
 
+    // Check if player is on road
+    player.onRoad = isPointOnRoad(player.position.x, player.position.z);
 
     let deltaRotation = 0;
     let rotationChanged = false;
@@ -1224,16 +1226,6 @@ function handleDrivingInput() {
             velocity: player.velocity
         });
     }
-
-    // Check if player is on road
-    const playerX = Math.floor(players[localPlayerId].position.x);
-    const playerZ = Math.floor(players[localPlayerId].position.z);
-    const currentTile = getTileFromGrid(playerX, playerZ, courseData.tiles);
-    players[localPlayerId].onRoad = currentTile && (
-        currentTile.type === 'road' || 
-        currentTile.type === 'startfinish' || 
-        currentTile.type?.startsWith('road_')
-    );
 }
 
 function updateCameraPosition() {
@@ -2271,23 +2263,23 @@ function updateRoadSmoke(playerId) {
         const playerRotationY = playerData.rotation?.y || 0;
 
         // Calculate offset behind the kart based on rotation
-        const offsetX = Math.sin(playerRotationY) * 0.5;
-        const offsetZ = Math.cos(playerRotationY) * 0.5;
+        const offsetX = Math.sin(playerRotationY) * 0.7;
+        const offsetZ = Math.cos(playerRotationY) * 0.7;
 
         // Update smoke particles
         for (let i = 0; i < positions.length; i += 3) {
             // If particle is too high or random chance to respawn
-            if (positions[i + 1] > 1.0 || Math.random() < 0.07) {
+            if (positions[i + 1] > 1.2 || Math.random() < 0.05) {
                 // Spawn new particle behind the kart
-                const spread = 0.3;
+                const spread = 0.4;
                 positions[i] = (Math.random() - 0.5) * spread; // X spread
                 positions[i + 1] = 0.05; // Initial Y height
-                positions[i + 2] = -0.3 - Math.random() * 0.3; // Z behind kart
+                positions[i + 2] = -0.4 - Math.random() * 0.4; // Z behind kart
             } else {
                 // Update existing particle
-                positions[i] += (Math.random() - 0.5) * 0.03; // Random X drift
-                positions[i + 1] += 0.03 + Math.random() * 0.02; // Float upward with randomness
-                positions[i + 2] += 0.02; // Drift backward slightly
+                positions[i] += (Math.random() - 0.5) * 0.04; // Random X drift
+                positions[i + 1] += 0.04 + Math.random() * 0.03; // Float upward with randomness
+                positions[i + 2] += 0.03; // Drift backward slightly
             }
         }
 
@@ -2306,5 +2298,21 @@ function updateRoadSmoke(playerId) {
             smokeSystem.material.needsUpdate = true;
         }
     }
+}
+
+// Add helper function to check if a point is on a road
+function isPointOnRoad(x, z) {
+    if (!courseData.road) return false;
+    
+    // Convert world coordinates to tile coordinates
+    const tileSize = 10; // Standard tile size in world units
+    const halfTileSize = tileSize / 2;
+
+    // Check each road segment
+    return courseData.road.some(road => {
+        // Check if point is within road bounds
+        return (x >= road.x - halfTileSize && x <= road.x + halfTileSize &&
+                z >= road.z - halfTileSize && z <= road.z + halfTileSize);
+    });
 }
 
