@@ -518,40 +518,46 @@ function checkCollisions(gameState) {
             if (collisionX && collisionZ) {
                 console.log(`---> OBSTACLE COLLISION DETECTED: Player ${player.id} vs Obstacle ${obstacle.type}`);
                 
-                // --- Response (MTV Calculation) ---
-                const overlapX1 = playerMaxX - obstacleMinX;
-                const overlapX2 = obstacleMaxX - playerMinX;
-                const overlapZ1 = playerMaxZ - obstacleMinZ;
-                const overlapZ2 = obstacleMaxZ - playerMinZ;
-                const mtvX = Math.min(overlapX1, overlapX2);
-                const mtvZ = Math.min(overlapZ1, overlapZ2);
-                
-                // <<< RIGOROUS NaN check for MTV >>>
-                if (isNaN(mtvX) || isNaN(mtvZ)){
-                     console.error(`!!! FATAL: Calculated NaN MTV for obstacle collision! Player: ${player.id}, Obstacle: ${obstacle.type}. Overlaps: X1=${overlapX1}, X2=${overlapX2}, Z1=${overlapZ1}, Z2=${overlapZ2}`);
-                     // Skip applying response if MTV is NaN
-                     return; // Continue to next obstacle
-                }
+                // --- Simplified Direct Pushback Response --- 
+                // Calculate vector from obstacle center to player center
+                const pushVectorX = player.position.x - obstacle.x;
+                const pushVectorZ = player.position.z - obstacle.z;
+                const pushDist = Math.sqrt(pushVectorX * pushVectorX + pushVectorZ * pushVectorZ);
 
-                // --- Apply Position Correction --- 
-                // const posBeforeObstacle = { ...player.position }; // For logging/revert
-                if (mtvX < mtvZ) {
-                    const pushDirectionX = player.position.x < obstacle.x ? -1 : 1;
-                     if (!isNaN(pushDirectionX)) {
-                         player.position.x += pushDirectionX * mtvX;
-                     } else { console.warn("NaN pushDirectionX in obstacle collision"); }
-                } else {
-                    const pushDirectionZ = player.position.z < obstacle.z ? -1 : 1;
-                     if (!isNaN(pushDirectionZ)) {
-                         player.position.z += pushDirectionZ * mtvZ;
-                     } else { console.warn("NaN pushDirectionZ in obstacle collision"); }
+                // Normalize the push vector (handle division by zero)
+                let normPushX = 0;
+                let normPushZ = 0;
+                if (pushDist > 0.001) { // Avoid division by zero or near-zero
+                     normPushX = pushVectorX / pushDist;
+                     normPushZ = pushVectorZ / pushDist;
+                } else { 
+                    // If player is exactly on top, push in a default direction (e.g., positive X)
+                    console.warn(`Player ${player.id} is directly on top of obstacle ${obstacle.type}. Applying default push.`);
+                    normPushX = 1;
+                    normPushZ = 0;
                 }
+                
+                 // Calculate the required separation distance (how much they overlap)
+                 // This is approximated by the sum of radii minus the current distance
+                 const totalHalfWidths = PLAYER_HALF_WIDTH + OBSTACLE_HALF_SIZE; 
+                 const overlap = Math.max(0, totalHalfWidths - pushDist); // Ensure overlap is not negative
+                
+                 // <<< RIGOROUS NaN check before applying correction >>>
+                 if (isNaN(normPushX) || isNaN(normPushZ) || isNaN(overlap)) {
+                      console.error(`!!! FATAL: Calculated NaN pushback values! normX=${normPushX}, normZ=${normPushZ}, overlap=${overlap}`);
+                      return; // Skip applying correction if values are invalid
+                 }
+
+                // Apply position correction directly along the push vector
+                player.position.x += normPushX * overlap;
+                player.position.z += normPushZ * overlap;
+                console.log(`  Pushing player ${player.id} along (${normPushX.toFixed(2)}, ${normPushZ.toFixed(2)}) by ${overlap.toFixed(3)}`);
+
+                // --- END Simplified Direct Pushback --- 
                 
                 // <<< RIGOROUS NaN check AFTER applying correction >>>
                  if (isNaN(player.position.x) || isNaN(player.position.z)) {
                       console.error(`!!! FATAL: Player (${player.id}) position became NaN AFTER Obstacle separation!`);
-                      // Attempt revert?
-                      // player.position = posBeforeObstacle; 
                  }
 
                 // --- Apply Velocity Correction --- 
