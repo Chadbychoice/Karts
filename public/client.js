@@ -2068,9 +2068,10 @@ function cleanupRaceScene() {
 
 // --- Spark Effect Setup ---
 let sparkSystem;
-const SPARK_LIFESPAN = 500; // milliseconds
+const MAX_SPARKS = 50; // Max sparks visible at once
 let sparkParticles = []; // Store individual spark data { position, velocity, life, textureIndex } 
 const sparkTexturesLoaded = []; // Cache loaded textures
+const SPARK_LIFESPAN = 300; // ms
 
 // --- Collision Handling ---
 socket.on('collisionDetected', (data) => {
