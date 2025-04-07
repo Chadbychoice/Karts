@@ -172,7 +172,46 @@ function preloadAssets() {
         sparkTexturePaths.push(`/Sprites/sparks/spark${i}.png`);
     }
 
-    const totalAssets = assetsToLoad.length + 7 + sparkTexturePaths.length; // Update total
+    // Preload flame textures
+    for (let i = 1; i <= 7; i++) {
+        const path = `/Sprites/flame/flame${i}.png`;
+        flameTextures[i - 1] = textureLoader.load(
+            path,
+            (tex) => {
+                tex.magFilter = THREE.NearestFilter;
+                tex.minFilter = THREE.NearestFilter;
+                checkAllAssetsLoaded(); // <<< Call checker on flame load
+            },
+            undefined,
+            (err) => {
+                console.error(`Failed to load flame texture: ${path}`, err);
+                checkAllAssetsLoaded(); // <<< Call checker on flame error
+            }
+        );
+    }
+
+    // <<< NEW: Preload smoke textures >>>
+    const smokeTexturePaths = [];
+    for (let i = 1; i <= 7; i++) {
+        smokeTexturePaths.push(`/Sprites/smoke/smoke${i}.png`);
+    }
+    smokeTexturePaths.forEach((path, index) => {
+        smokeTextures[index] = textureLoader.load(
+            path,
+            (tex) => {
+                tex.magFilter = THREE.NearestFilter;
+                tex.minFilter = THREE.NearestFilter;
+                checkAllAssetsLoaded(); // Use existing asset loaded checker
+            },
+            undefined,
+            (err) => {
+                console.error(`Failed to load smoke texture: ${path}`, err);
+                checkAllAssetsLoaded(); // Still count as handled
+            }
+        );
+    });
+    // Update total assets count (if still using strict count check)
+    const totalAssets = assetsToLoad.length + 7 /*flame*/ + sparkTexturePaths.length + smokeTexturePaths.length; 
 
     const checkAllAssetsLoaded = () => {
         assetsLoaded++;
@@ -1406,6 +1445,7 @@ function createCourse(courseData) {
     const RENDER_ORDER_STRIPE = 2; // <<< ADDED Stripe Layer
     const RENDER_ORDER_OBSTACLE = 3;
     const RENDER_ORDER_DECORATION = 4;
+    const RENDER_ORDER_EFFECTS = 5; // <<< NEW: For sparks, smoke, etc.
 
     const Y_OFFSET_TERRAIN = 0.00;
     const Y_OFFSET_ROAD = 0.01;
@@ -1751,43 +1791,36 @@ function initializeSharedSparkSystem() {
 
 // --- Race Initialization ---
 function initializeRaceScene(initialPlayers, options) {
-    console.log("Initializing race scene...");
-    if (raceInitialized) { 
-        cleanupRaceScene();
-    }
-    raceInitialized = true;
-    isSceneInitialized = true;
+    console.log("Initializing race scene with players:", initialPlayers, "Options:", options);
+    cleanupRaceScene(); // Clean previous scene first
 
+    // --- Basic Scene Setup ---
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87CEEB); // Light sky blue
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    renderer = new THREE.WebGLRenderer({ antialias: true }); // Enable antialiasing
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x87ceeb); // Sky blue background
+    document.getElementById('game-container').appendChild(renderer.domElement);
 
-    // Enhanced lighting setup
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    // --- Lighting ---
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7); // Softer ambient light
     scene.add(ambientLight);
-
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
-    directionalLight.position.set(50, 100, 50);
-    directionalLight.castShadow = true;
-    directionalLight.shadow.mapSize.width = 2048;
-    directionalLight.shadow.mapSize.height = 2048;
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8); // Slightly stronger directional
+    directionalLight.position.set(50, 100, 25);
+    directionalLight.castShadow = false; // Disable shadows for now if not needed
     scene.add(directionalLight);
 
-    const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
-    scene.add(hemisphereLight);
-
-    // Camera setup
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    
-    // Enable shadows
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-    // Setup post-processing
-    composer = new EffectComposer(renderer);
+    // --- Post-processing ---
     const renderPass = new RenderPass(scene, camera);
+    composer = new EffectComposer(renderer);
     composer.addPass(renderPass);
 
-    // Load course
+    // --- Initialize Shared Systems ---
+    initializeSharedSparkSystem(); // Sparks for collisions
+    initializeSmokeSystem(); // <<< NEW: Smoke for driving
+
+    // --- Load Course ---
+    const courseId = options.courseId || 1; // Use courseId from options, default to 1
     console.log("Loading course data:", options?.courseData);
     if (options?.courseData) {
         createCourseFromData(options.courseData);
@@ -1890,17 +1923,64 @@ function animate() {
     frameCount++; // Increment frame counter
     const now = Date.now(); // Get current time for effects
 
+    const localPlayer = players[localPlayerId];
+    const playerObject = playerObjects[localPlayerId];
+
     // --- Update Remote Player Positions (Lerp) ---
      for (const playerId in playerObjects) {
          if (playerId !== localPlayerId && playerObjects[playerId].userData.targetPosition) {
-             playerObjects[playerId].position.lerp(playerObjects[playerId].userData.targetPosition, lerpFactor);
+             // Smoothly interpolate towards the target position received from the server
+             const remoteObj = playerObjects[playerId];
+             remoteObj.position.lerp(remoteObj.userData.targetPosition, lerpFactor);
+
+             // Optionally lerp rotation if needed (using Quaternions is better for this)
+             // if (playerObjects[playerId].userData.targetRotation) {
+             //     const targetQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, playerObjects[playerId].userData.targetRotation.y, 0));
+             //     playerObjects[playerId].quaternion.slerp(targetQuat, lerpFactor);
+             // }
          }
      }
 
     // Only run driving logic if actually racing and local player exists
-    if (currentGameState === 'racing' && localPlayerId && players[localPlayerId]) {
-        handleDrivingInput();
-        sendLocalPlayerUpdate();
+    if (currentGameState === 'racing' && localPlayerId && localPlayer && playerObject) {
+        handleDrivingInput(); // Handles local movement, state changes, and sends updates
+        // sendLocalPlayerUpdate(); // Called periodically within handleDrivingInput now
+
+        // --- NEW: Smoke Spawning Logic ---
+        if (localPlayer.velocity > 0.1 && now - lastSmokeSpawnTime > smokeSpawnInterval) {
+            // Check ground below player
+            const checkPos = playerObject.position.clone().add(smokeCheckOffset);
+            smokeRaycaster.set(checkPos, downVector);
+            const intersects = smokeRaycaster.intersectObjects(scene.children, true); // Check all scene objects recursively
+
+            let onRoad = false;
+            for (const intersect of intersects) {
+                if (intersect.object.userData && intersect.object.userData.type === 'road') {
+                    onRoad = true;
+                    break;
+                }
+            }
+
+            if (onRoad) {
+                lastSmokeSpawnTime = now;
+                 const playerRotationY = localPlayer.rotation?.y || 0;
+                 const backwardVector = new THREE.Vector3(0, 0, 1).applyAxisAngle(THREE.Object3D.DEFAULT_UP, playerRotationY);
+                const smokeBasePos = playerObject.position.clone().addScaledVector(backwardVector, 0.6); // Spawn slightly behind
+                smokeBasePos.y = 0.1; // Spawn slightly above ground
+
+                for (let i = 0; i < smokeSpawnCount; i++) {
+                    const randomOffset = new THREE.Vector3(
+                        (Math.random() - 0.5) * 0.4, // Spread sideways
+                        0,
+                        (Math.random() - 0.5) * 0.2  // Spread depth slightly
+                    );
+                     // Rotate offset by player rotation
+                     randomOffset.applyAxisAngle(THREE.Object3D.DEFAULT_UP, playerRotationY);
+
+                    createSmokeAtPosition(smokeBasePos.clone().add(randomOffset), localPlayer.velocity);
+                }
+            }
+        }
     }
 
     updateCameraPosition();
@@ -1908,17 +1988,20 @@ function animate() {
 
     // --- Update Visual Effects for ALL players ---
     for (const playerId in playerObjects) {
-        updateDriftParticles(playerId);
-        updateBoostFlame(playerId, now);
+        // Check if playerObjects[playerId] exists before trying to update effects
+        if (playerObjects[playerId]) {
+            updateDriftParticles(playerId);
+            updateBoostFlame(playerId, now);
+        }
     }
-    // updateSpeedLines(); // <<< REMOVED
+
+    // Update global particle systems
+    updateSmokeParticles(); // <<< NEW
+    if (sparkSystem) {
+        updateSharedSparks();
+    }
 
     composer.render(); // Render via EffectComposer
-
-    // Update spark system if it exists
-    if (sparkSystem) {
-        updateSharedSparks(); // Use the renamed function
-    }
 }
 
 function updateAllSpriteAngles() {
@@ -2135,6 +2218,31 @@ function cleanupRaceScene() {
     playerObjects = {}; // Ensure visual object references are cleared
     playerVisuals = {}; // Ensure visual components references are cleared
 
+    // Remove smoke system <<< NEW
+    if (smokeParticleSystem) {
+        scene.remove(smokeParticleSystem);
+        smokeGeometry.dispose();
+        if (smokeMaterial.uniforms.smokeTextures.value) {
+             // Dispose textures if needed, but they might be managed elsewhere
+             // smokeMaterial.uniforms.smokeTextures.value.forEach(tex => tex.dispose());
+        }
+        smokeMaterial.dispose();
+        smokeParticleSystem = null;
+        smokeGeometry = null;
+        smokeMaterial = null;
+        smokeParticles = [];
+        console.log("Smoke system cleaned up.");
+    }
+
+    // Remove spark system
+    if (sparkSystem) {
+        sparkSystem.removeFromParent();
+        sparkSystem = null;
+        sparkParticles = [];
+        sparkTexturesLoaded = [];
+        console.log("Spark system cleaned up.");
+    }
+
     // Remove course objects 
     // Fallback: Remove meshes/sprites potentially added by createCourseFromData or createCourse
     const objectsToRemove = [];
@@ -2192,5 +2300,221 @@ function createSparksAtPoint(origin, intensity = 0.5, range = 1.0) {
 // RENAMED Function (Remains here)
 function updateSharedSparks() {
 // ... function body ...
+}
+
+// --- NEW: Smoke Effect Functions ---
+function initializeSmokeSystem() {
+    if (smokeParticleSystem) {
+        scene.remove(smokeParticleSystem); // Remove old one if exists
+        smokeGeometry.dispose();
+        smokeMaterial.dispose();
+    }
+    console.log("Initializing smoke system...");
+
+    smokeGeometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(MAX_SMOKE_PARTICLES * 3);
+    const opacities = new Float32Array(MAX_SMOKE_PARTICLES);
+    const sizes = new Float32Array(MAX_SMOKE_PARTICLES);
+    const textureIndices = new Float32Array(MAX_SMOKE_PARTICLES); // To store which texture to use
+
+    for (let i = 0; i < MAX_SMOKE_PARTICLES; i++) {
+        positions[i * 3 + 0] = 0; // x
+        positions[i * 3 + 1] = -1000; // y (hide initially far below)
+        positions[i * 3 + 2] = 0; // z
+        opacities[i] = 0.0;
+        sizes[i] = 0.0;
+        textureIndices[i] = 0;
+    }
+
+    smokeGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    smokeGeometry.setAttribute('opacity', new THREE.BufferAttribute(opacities, 1));
+    smokeGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+    smokeGeometry.setAttribute('textureIndex', new THREE.BufferAttribute(textureIndices, 1));
+
+    // Using ShaderMaterial for more control (opacity, texture selection)
+    smokeMaterial = new THREE.ShaderMaterial({
+        uniforms: {
+            smokeTextures: { value: smokeTextures }, // Pass texture array
+            pointTexture: { value: null } // Placeholder, main texture decided by attribute
+        },
+        vertexShader: `
+            attribute float size;
+            attribute float opacity;
+            attribute float textureIndex;
+            varying float vOpacity;
+            varying float vTextureIndex;
+            void main() {
+                vOpacity = opacity;
+                vTextureIndex = textureIndex;
+                vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+                gl_PointSize = size * ( 300.0 / -mvPosition.z ); // Adjust size based on distance
+                gl_Position = projectionMatrix * mvPosition;
+            }
+        `,
+        fragmentShader: `
+            uniform sampler2D smokeTextures[7]; // Array of textures
+            varying float vOpacity;
+            varying float vTextureIndex;
+            void main() {
+                int texIdx = int(vTextureIndex);
+                vec4 texColor;
+
+                // Manual texture selection based on index
+                if (texIdx == 0) texColor = texture2D( smokeTextures[0], gl_PointCoord );
+                else if (texIdx == 1) texColor = texture2D( smokeTextures[1], gl_PointCoord );
+                else if (texIdx == 2) texColor = texture2D( smokeTextures[2], gl_PointCoord );
+                else if (texIdx == 3) texColor = texture2D( smokeTextures[3], gl_PointCoord );
+                else if (texIdx == 4) texColor = texture2D( smokeTextures[4], gl_PointCoord );
+                else if (texIdx == 5) texColor = texture2D( smokeTextures[5], gl_PointCoord );
+                else texColor = texture2D( smokeTextures[6], gl_PointCoord );
+
+                if (texColor.a < 0.1) discard; // Alpha test
+                gl_FragColor = vec4( texColor.rgb, texColor.a * vOpacity );
+            }
+        `,
+        transparent: true,
+        depthWrite: false, // Smoke shouldn't obscure things behind it harshly
+        vertexColors: false // We're not using vertex colors here
+    });
+
+    smokeParticleSystem = new THREE.Points(smokeGeometry, smokeMaterial);
+    smokeParticleSystem.renderOrder = RENDER_ORDER_EFFECTS; // Ensure drawn after road etc.
+    scene.add(smokeParticleSystem);
+    smokeParticles = []; // Reset active particle tracking
+    console.log("Smoke system initialized and added to scene.");
+}
+
+
+function createSmokeAtPosition(position, velocity) {
+    if (!smokeParticleSystem || smokeParticles.length >= MAX_SMOKE_PARTICLES) {
+        return; // System not ready or pool is full
+    }
+
+    const particleIndex = smokeParticles.length; // Use next available slot conceptually
+    const now = Date.now();
+    const textureIndex = Math.floor(Math.random() * smokeTextures.length);
+
+    const particleData = {
+        index: particleIndex, // Index in the buffer attributes
+        startTime: now,
+        startPosition: position.clone(),
+        velocity: new THREE.Vector3(
+            (Math.random() - 0.5) * 0.5, // Horizontal spread
+            0.5 + Math.random() * 0.5,   // Upward float
+            (Math.random() - 0.5) * 0.5  // Depth spread
+        ).multiplyScalar(0.01), // Scaled down velocity
+        initialSize: 1.5 + Math.random() * 1.0, // Random initial size
+        textureIndex: textureIndex
+    };
+
+    // Directly update buffer attributes for this new particle
+    const positions = smokeGeometry.attributes.position.array;
+    const opacities = smokeGeometry.attributes.opacity.array;
+    const sizes = smokeGeometry.attributes.size.array;
+    const texIndices = smokeGeometry.attributes.textureIndex.array;
+
+    const i = particleIndex * 3;
+    positions[i] = position.x;
+    positions[i + 1] = position.y;
+    positions[i + 2] = position.z;
+
+    opacities[particleIndex] = 0.0; // Start transparent, fade in
+    sizes[particleIndex] = 0.1; // Start small
+    texIndices[particleIndex] = textureIndex;
+
+    // Mark attributes for update (only for the specific elements if possible, THREE might optimize)
+    smokeGeometry.attributes.position.needsUpdate = true;
+    smokeGeometry.attributes.opacity.needsUpdate = true;
+    smokeGeometry.attributes.size.needsUpdate = true;
+    smokeGeometry.attributes.textureIndex.needsUpdate = true;
+
+
+    smokeParticles.push(particleData); // Add to active list
+}
+
+function updateSmokeParticles() {
+    if (!smokeParticleSystem || smokeParticles.length === 0) return;
+
+    const now = Date.now();
+    const positions = smokeGeometry.attributes.position.array;
+    const opacities = smokeGeometry.attributes.opacity.array;
+    const sizes = smokeGeometry.attributes.size.array;
+
+    let aliveParticles = 0; // Count how many particles are still active
+
+    for (let i = 0; i < smokeParticles.length; i++) {
+        const p = smokeParticles[i];
+        const elapsedTime = now - p.startTime;
+
+        if (elapsedTime >= SMOKE_LIFESPAN) {
+            // Particle died, effectively remove it by setting size/opacity to 0
+            // and marking it for replacement (handled implicitly by reusing indices)
+            opacities[p.index] = 0.0;
+            sizes[p.index] = 0.0;
+            // Optional: Move position far away
+            // positions[p.index * 3 + 1] = -1000;
+            continue; // Skip further processing for this particle
+        }
+
+        // If the particle is alive, but not the one we are currently putting at index `aliveParticles`
+        // move its data to the `aliveParticles` slot
+        if (i !== aliveParticles) {
+           smokeParticles[aliveParticles] = p;
+           // Update the particle's index to its new position in the array and attributes
+           p.index = aliveParticles;
+           // Copy attribute data from old slot (i) to new slot (aliveParticles)
+           const oldAttrIndex = i; // Original index in the attribute arrays
+           const newAttrIndex = aliveParticles;
+           positions[newAttrIndex * 3 + 0] = positions[oldAttrIndex * 3 + 0];
+           positions[newAttrIndex * 3 + 1] = positions[oldAttrIndex * 3 + 1];
+           positions[newAttrIndex * 3 + 2] = positions[oldAttrIndex * 3 + 2];
+           opacities[newAttrIndex]         = opacities[oldAttrIndex];
+           sizes[newAttrIndex]             = sizes[oldAttrIndex];
+           smokeGeometry.attributes.textureIndex.array[newAttrIndex] = p.textureIndex; // Already updated p.index
+        }
+
+
+        // Update position based on velocity
+        positions[p.index * 3 + 0] += p.velocity.x;
+        positions[p.index * 3 + 1] += p.velocity.y;
+        positions[p.index * 3 + 2] += p.velocity.z;
+
+        // Update opacity (fade in then fade out)
+        const lifeRatio = elapsedTime / SMOKE_LIFESPAN;
+        const fadeInDuration = 0.2; // 20% of lifespan
+        const fadeOutStart = 0.6; // Start fading out at 60% of lifespan
+
+        if (lifeRatio < fadeInDuration) {
+            opacities[p.index] = Math.min(0.6, lifeRatio / fadeInDuration * 0.6); // Fade in to max 0.6 opacity
+        } else if (lifeRatio > fadeOutStart) {
+            opacities[p.index] = Math.max(0, (1.0 - (lifeRatio - fadeOutStart) / (1.0 - fadeOutStart)) * 0.6); // Fade out from 0.6
+        } else {
+            opacities[p.index] = 0.6; // Stay at max opacity
+        }
+
+
+        // Update size (grow then shrink slightly)
+        const sizeRatio = Math.sin(lifeRatio * Math.PI); // Grows then shrinks using sin curve
+        sizes[p.index] = p.initialSize * sizeRatio * 1.5; // Adjust multiplier as needed
+
+        aliveParticles++; // Increment count of active particles
+    }
+
+    // Trim the active particle array
+    smokeParticles.length = aliveParticles;
+
+    // If particles were removed, potentially hide the now unused attribute slots
+    // (optional, but good practice if MAX_SMOKE_PARTICLES is large)
+    for (let i = aliveParticles; i < MAX_SMOKE_PARTICLES; i++) {
+        if(opacities[i] !== 0) opacities[i] = 0; // Ensure unused slots are fully transparent
+        if(sizes[i] !== 0) sizes[i] = 0; // Ensure unused slots have zero size
+        // positions[i*3+1] = -1000; // Move unused points far away
+    }
+
+    // Mark attributes for update
+    smokeGeometry.attributes.position.needsUpdate = true;
+    smokeGeometry.attributes.opacity.needsUpdate = true;
+    smokeGeometry.attributes.size.needsUpdate = true;
+    smokeGeometry.attributes.textureIndex.needsUpdate = true; // Though texture index doesn't change per particle life
 }
 
