@@ -372,8 +372,8 @@ function checkCollisions(gameState) {
                 const nz = dz / distance;
                 const separationForce = overlap * 3.0;
                 
-                // <<< TEMPORARILY DISABLE P2P POSITIONAL CORRECTION FOR JITTER DEBUG >>>
-                /*
+                // <<< RE-ENABLE P2P POSITIONAL CORRECTION >>>
+                // /*
                 if (!isNaN(nx) && !isNaN(nz) && !isNaN(separationForce)) {
                     playerA.position.x += nx * separationForce;
                     playerA.position.z += nz * separationForce;
@@ -390,8 +390,8 @@ function checkCollisions(gameState) {
                 } else {
                     console.warn(`!!! Skipping P2P position separation due to NaN values (nx=${nx}, nz=${nz}, force=${separationForce}).`);
                 }
-                */
-                // <<< END TEMPORARY DISABLE >>>
+                // */
+                // <<< END RE-ENABLE >>>
                 
                 // Keep velocity exchange logic (less likely to cause jitter)
                  const restitution = 0.8;
@@ -449,7 +449,6 @@ function checkCollisions(gameState) {
     }
     
     // --- Player vs Obstacle Collisions --- 
-    /* <<< TEMPORARILY DISABLED FOR JITTER DEBUGGING >>>
     for (let i = 0; i < players.length; i++) {
         const player = players[i];
         
@@ -554,7 +553,6 @@ function checkCollisions(gameState) {
             } 
         });
     }
-    */ // <<< END TEMPORARY DISABLE >>>
     
     return collisions.length > 0 ? collisions : null; 
 }
@@ -683,26 +681,32 @@ io.on('connection', (socket) => {
                       // Compare final state with state *before* collision check
                       const posChanged = finalPlayerState.position.x !== positionBeforeCheck.x || 
                                          finalPlayerState.position.z !== positionBeforeCheck.z;
+                      // Calculate distance squared of the change
+                      const dx = finalPlayerState.position.x - positionBeforeCheck.x;
+                      const dz = finalPlayerState.position.z - positionBeforeCheck.z;
+                      const posChangeDistanceSq = dx * dx + dz * dz;
+
                       const velChanged = finalPlayerState.velocity !== velocityBeforeCheck;
+                      const CORRECTION_THRESHOLD_SQ = 0.01 * 0.01; // Only correct if position changed by > 0.01 units
                       
                       if (posChanged || velChanged) {
                            collisionModifiedState = true;
-                           console.log(`Collision system modified state for ${socket.id}. Pos changed: ${posChanged}, Vel changed: ${velChanged}`);
+                           console.log(`Collision system modified state for ${socket.id}. Pos changed: ${posChanged} (DistSq: ${posChangeDistanceSq.toFixed(4)}), Vel changed: ${velChanged}`);
                       }
 
-                      // 4. Broadcast state to OTHERS
+                      // 4. Broadcast state to OTHERS (Always broadcast latest state)
                       if (!isNaN(finalPlayerState.position.x) && !isNaN(finalPlayerState.position.z)) {
                           socket.broadcast.emit('updatePlayerPosition', socket.id, finalPlayerState.position, finalPlayerState.rotation);
                       } else {
                            console.error(`Player ${socket.id} state invalid after collision checks. Not broadcasting position.`);
                       }
 
-                      // 5. <<< IMPORTANT FIX: Send correction back to the originating client if modified >>>
-                      if (collisionModifiedState && !isNaN(finalPlayerState.position.x) && !isNaN(finalPlayerState.position.z)) {
-                           console.log(`---> Sending position correction back to client ${socket.id}`);
+                      // 5. Send correction back to the originating client ONLY IF position changed significantly
+                      if (collisionModifiedState && posChangeDistanceSq > CORRECTION_THRESHOLD_SQ && !isNaN(finalPlayerState.position.x) && !isNaN(finalPlayerState.position.z)) {
+                           console.log(`---> Sending position correction back to client ${socket.id} (Significant change: ${Math.sqrt(posChangeDistanceSq).toFixed(3)})`);
                            socket.emit('updatePlayerPosition', socket.id, finalPlayerState.position, finalPlayerState.rotation); 
-                           // Also consider sending corrected velocity if client uses it?
-                           // socket.emit('updatePlayerVelocity', socket.id, finalPlayerState.velocity); // Requires client handler
+                      } else if (collisionModifiedState) {
+                           console.log(`   (Skipping correction for ${socket.id}: Position change ${Math.sqrt(posChangeDistanceSq).toFixed(3)} below threshold)`);
                       }
                  } else {
                       console.error(`Player ${socket.id} disappeared after collision check!`);
