@@ -372,8 +372,8 @@ function checkCollisions(gameState) {
                 const nz = dz / distance;
                 const separationForce = overlap * 3.0;
                 
-                // <<< TEMPORARILY DISABLE P2P POSITIONAL CORRECTION AGAIN>>>
-                /*
+                // <<< RE-ENABLE P2P POSITIONAL CORRECTION >>>
+                // /*
                 if (!isNaN(nx) && !isNaN(nz) && !isNaN(separationForce)) {
                     playerA.position.x += nx * separationForce;
                     playerA.position.z += nz * separationForce;
@@ -390,8 +390,8 @@ function checkCollisions(gameState) {
                 } else {
                     console.warn(`!!! Skipping P2P position separation due to NaN values (nx=${nx}, nz=${nz}, force=${separationForce}).`);
                 }
-                */
-                // <<< END TEMPORARY DISABLE >>>
+                // */
+                // <<< END RE-ENABLE >>>
                 
                 // Keep velocity exchange logic (less likely to cause jitter)
                  const restitution = 0.8;
@@ -491,8 +491,10 @@ function checkCollisions(gameState) {
             const obstacleMinZ = obstacle.z - obstacleHalfLength;
             const obstacleMaxZ = obstacle.z + obstacleHalfLength;
 
-            const collisionX = playerMaxX > obstacleMinX && playerMinX < obstacleMaxX;
-            const collisionZ = playerMaxZ > obstacleMinZ && playerMinZ < obstacleMaxZ;
+            // Add a small margin to prevent jitter from floating point inaccuracies near edges
+            const COLLISION_MARGIN = 0.01;
+            const collisionX = (playerMaxX > obstacleMinX + COLLISION_MARGIN) && (playerMinX < obstacleMaxX - COLLISION_MARGIN);
+            const collisionZ = (playerMaxZ > obstacleMinZ + COLLISION_MARGIN) && (playerMinZ < obstacleMaxZ - COLLISION_MARGIN);
 
             if (collisionX && collisionZ) {
                 console.log(`---> OBSTACLE COLLISION DETECTED: Player ${player.id} vs Obstacle ${obstacle.type}`);
