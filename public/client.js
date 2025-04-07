@@ -104,6 +104,29 @@ let raceInitialized = false; // Track if race scene is set up
 let isSceneInitialized = false; // <<< ADD Declaration for this flag
 let currentCourseEditorTiles = []; // <<< ADDED Declaration
 
+// <<< ADDED: Client-side constants for grid calculation >>>
+const TILE_SIZE_ON_CLIENT = 25;
+const GRID_WIDTH_ON_CLIENT = 40;
+const GRID_HEIGHT_ON_CLIENT = 30;
+
+// <<< ADDED: Helper function to get ground type at position >>>
+function getLocalGroundType(worldX, worldZ) {
+    if (!currentCourseEditorTiles || currentCourseEditorTiles.length === 0) {
+        return 'unknown'; // No tile data available
+    }
+    const gridX = Math.round(worldX / TILE_SIZE_ON_CLIENT + GRID_WIDTH_ON_CLIENT / 2);
+    const gridY = Math.round(worldZ / TILE_SIZE_ON_CLIENT + GRID_HEIGHT_ON_CLIENT / 2); // Editor uses Y for Z-axis
+
+    if (gridX < 0 || gridX >= GRID_WIDTH_ON_CLIENT || gridY < 0 || gridY >= GRID_HEIGHT_ON_CLIENT) {
+        return 'out_of_bounds';
+    }
+
+    const tileIndex = gridY * GRID_WIDTH_ON_CLIENT + gridX;
+    const groundTile = currentCourseEditorTiles[tileIndex];
+
+    return groundTile ? groundTile.type : 'unknown';
+}
+
 // Global variable to track which course to load locally
 let localSelectedCourseId = 1;
 
@@ -112,6 +135,7 @@ const characterSelectionOverlay = document.getElementById('character-selection')
 const waitingScreenOverlay = document.getElementById('waiting-screen');
 const characterGrid = document.getElementById('character-grid');
 const selectedCharacterNameElement = document.getElementById('selected-character-name');
+const speedometerElement = document.getElementById('speedometer'); // <<< ADDED
 
 // --- Character Data ---
 const characters = {
@@ -606,13 +630,13 @@ socket.on('playerLeft', (playerId) => {
     delete players[playerId]; // Remove from local cache
 });
 
-socket.on('updatePlayerPosition', (playerId, position, rotation) => {
+socket.on('updatePlayerPosition', (playerId, position, rotation, velocity) => { // <<< ADDED velocity parameter
      // console.log(`Received updatePlayerPosition for ${playerId}`);
     if (!players[playerId]) return; // Ignore if player doesn't exist locally
 
      // --- RESTORED Cooldown logic --- 
      if (playerId === localPlayerId) {
-         console.log("<-- Received server correction. Applying cooldown.");
+         console.log(`<-- Received server correction for pos(${position.x.toFixed(1)}, ${position.z.toFixed(1)}) rot(${rotation.y.toFixed(2)}) vel(${velocity.toFixed(2)}). Applying cooldown.`); // <<< ADDED velocity to log
          canSendUpdate = false;
          // Clear the cooldown after a short delay
          setTimeout(() => {
@@ -630,6 +654,14 @@ socket.on('updatePlayerPosition', (playerId, position, rotation) => {
      }
      if (rotation) {
         players[playerId].rotation = rotation;
+     }
+     // <<< ADDED: Apply server's velocity if this update is for the local player >>>
+     if (playerId === localPlayerId && velocity !== undefined && !isNaN(velocity)) {
+         players[playerId].velocity = velocity;
+         console.log(`   Applied server velocity: ${velocity.toFixed(3)}`);
+     } else if (playerId !== localPlayerId && velocity !== undefined && !isNaN(velocity)) {
+         // Optionally store velocity for remote players too (for interpolation/effects?)
+         players[playerId].velocity = velocity; 
      }
     
     // Apply update directly to visual object, ensuring correct Y position
@@ -954,6 +986,17 @@ const MAX_SPEED = 0.7; // Further increased top speed
 const MAX_REVERSE_SPEED = -0.1;
 const TURN_SPEED_BASE = 0.025; // Base radians per frame
 
+// <<< ADDED: Off-road physics constants >>>
+const OFF_ROAD_ACCELERATION = 0.002; // Significantly lower acceleration
+const OFF_ROAD_MAX_SPEED = 0.2;      // Much lower top speed
+const OFF_ROAD_DECELERATION = 0.015; // Higher friction off-road
+
+// <<< ADDED: Gradual slowdown constant >>>
+const OFF_ROAD_TRANSITION_DURATION_MS = 3000; // 3 seconds
+
+// <<< ADDED: Post-boost decay constant >>>
+const POST_BOOST_TRANSITION_DURATION_MS = 3000; // 3 seconds
+
 // Drift Physics Constants
 const HOP_DURATION = 150; // ms
 const DRIFT_TURN_RATE = 0.018; // Reduced for a less tight initial drift
@@ -970,6 +1013,11 @@ const BOOST_DURATION = 800; // ms
 
 let boostEndTime = 0; // Track when current boost ends
 let boostTriggerLevel = 0; // Track which mini-turbo level triggered the current boost
+
+// <<< ADDED: State for gradual post-boost speed decay >>>
+let boostEndTimestamp = 0;
+let velocityAtBoostEnd = 0;
+let isPostBoostDecaying = false;
 
 function initiateDrift(direction, now) {
     if (localPlayerDriftState.state === 'none' && players[localPlayerId]?.velocity > 0.1) { // Can only drift if moving forward
@@ -1034,15 +1082,31 @@ function handleDrivingInput() {
     const playerObject = playerObjects[localPlayerId];
     const now = Date.now();
 
-    // Initialize physics state if missing
+    // Initialize physics state if missing (moved up)
     if (player.velocity === undefined) player.velocity = 0;
-    if (!player.position) player.position = { 
-        x: playerObject.position.x, 
-        y: 0, // Keep Y at 0 in the data
-        z: playerObject.position.z 
-    };
+    if (!player.position) player.position = { x: playerObject.position.x, y: 0, z: playerObject.position.z };
     if (!player.rotation) player.rotation = { y: 0 };
 
+    // --- Ground Type Detection and Transition --- 
+    const groundType = getLocalGroundType(player.position.x, player.position.z);
+    const isCurrentlyOnRoad = !(groundType === 'grass' || groundType === 'mud');
+    const isCurrentlyOffRoad = !isCurrentlyOnRoad;
+
+    if (isCurrentlyOnRoad) {
+        if (previousGroundType === 'off-road') {
+            // Just returned to road
+            console.log("Returned to road.");
+        }
+        previousGroundType = 'road';
+        offRoadEntryTimestamp = 0; // Reset timestamp when back on road
+    } else { // Player is off-road
+        if (previousGroundType === 'road') {
+            // Just entered off-road
+            offRoadEntryTimestamp = now;
+            console.log("Entered off-road area. Timestamp:", offRoadEntryTimestamp);
+        }
+        previousGroundType = 'off-road';
+    }
 
     let deltaRotation = 0;
     let rotationChanged = false;
@@ -1121,26 +1185,72 @@ function handleDrivingInput() {
         rotationChanged = true;
     }
 
-    // --- Acceleration / Deceleration --- (Mostly unchanged)
-    let currentMaxSpeed = (now < boostEndTime) ? MAX_SPEED + BOOST_LEVEL_2_STRENGTH : MAX_SPEED; // Allow higher speed during boost
-    let currentAcceleration = ACCELERATION;
-    // if (isCurrentlyDrifting) { // Keep drift accel penalty? Optional.
-    //     currentAcceleration *= 0.5;
-    // }
+    // --- Acceleration / Deceleration --- (Modified for gradual max speed and post-boost decay)
+    let currentMaxSpeed; // Declare ONCE here
+    let currentAcceleration = isCurrentlyOffRoad ? OFF_ROAD_ACCELERATION : ACCELERATION;
+    let currentDeceleration = isCurrentlyOffRoad ? OFF_ROAD_DECELERATION : DECELERATION;
 
+    // Determine the target max speed based SOLELY on ground type (including off-road transition)
+    let targetMaxSpeed;
+    if (isCurrentlyOffRoad && offRoadEntryTimestamp > 0) {
+        const timeOffRoad = now - offRoadEntryTimestamp;
+        const transitionProgress = Math.min(timeOffRoad / OFF_ROAD_TRANSITION_DURATION_MS, 1.0); 
+        targetMaxSpeed = lerp(MAX_SPEED, OFF_ROAD_MAX_SPEED, transitionProgress);
+    } else if (isCurrentlyOffRoad) {
+        targetMaxSpeed = OFF_ROAD_MAX_SPEED;
+    } else {
+        targetMaxSpeed = MAX_SPEED;
+    }
+
+    // --- Handle Boost State and Post-Boost Decay --- 
+    const wasBoosting = (boostEndTime > 0 && now >= boostEndTime); // Check if boost just ended THIS frame
+    if (wasBoosting) {
+        console.log("Boost ended. Starting decay.");
+        isPostBoostDecaying = true;
+        boostEndTimestamp = now;
+        velocityAtBoostEnd = player.velocity; // Capture speed when boost ended
+        boostEndTime = 0; // Reset boost end time
+    }
+
+    if (isPostBoostDecaying) {
+        const timeSinceBoostEnd = now - boostEndTimestamp;
+        const decayProgress = Math.min(timeSinceBoostEnd / POST_BOOST_TRANSITION_DURATION_MS, 1.0);
+        
+        // Interpolate from the speed when boost ended down to the current target max speed
+        currentMaxSpeed = lerp(velocityAtBoostEnd, targetMaxSpeed, decayProgress);
+        // Ensure we don't go below the actual target max speed
+        currentMaxSpeed = Math.max(currentMaxSpeed, targetMaxSpeed);
+        
+        // console.log(`Post-boost decay: ${decayProgress.toFixed(2)}, Max Speed: ${currentMaxSpeed.toFixed(3)}`); // Debug log
+
+        if (decayProgress >= 1.0) {
+            console.log("Post-boost decay finished.");
+            isPostBoostDecaying = false; // Decay finished
+            boostEndTimestamp = 0;
+            velocityAtBoostEnd = 0;
+        }
+    } else if (now < boostEndTime) {
+        // Actively boosting - use the higher of target or boosted speed
+        currentMaxSpeed = Math.max(targetMaxSpeed, MAX_SPEED + BOOST_LEVEL_2_STRENGTH);
+    } else {
+        // Not boosting, not decaying - just use the target speed based on ground
+        currentMaxSpeed = targetMaxSpeed;
+    }
+
+    // --- Apply Movement --- 
     if (!isHopping && (keyStates['w'] || keyStates['arrowup'])) {
         player.velocity += currentAcceleration;
-        player.velocity = Math.min(player.velocity, currentMaxSpeed);
+        player.velocity = Math.min(player.velocity, currentMaxSpeed); // Apply calculated max speed
     } else if (!isHopping && (keyStates['s'] || keyStates['arrowdown'])) {
         player.velocity -= BRAKING_FORCE;
         player.velocity = Math.max(player.velocity, MAX_REVERSE_SPEED);
     } else {
-        // Apply friction/deceleration
+        // Apply friction/deceleration based on ground type
         if (player.velocity > 0) {
-            player.velocity -= DECELERATION;
+            player.velocity -= currentDeceleration;
             player.velocity = Math.max(0, player.velocity);
         } else if (player.velocity < 0) {
-            player.velocity += DECELERATION;
+            player.velocity += currentDeceleration;
             player.velocity = Math.min(0, player.velocity);
         }
     }
@@ -1914,6 +2024,14 @@ function animate() {
     if (currentGameState === 'racing' && localPlayerId && players[localPlayerId]) {
         handleDrivingInput();
         sendLocalPlayerUpdate();
+        // <<< ADDED: Update Speedometer >>>
+        const localVelocity = players[localPlayerId].velocity;
+        if (speedometerElement && localVelocity !== undefined) {
+            // Multiply by a factor to make speed more readable (adjust as needed)
+            const displaySpeed = Math.abs(localVelocity * 100).toFixed(0);
+            speedometerElement.textContent = `Speed: ${displaySpeed}`;
+        }
+        // <<< END ADDED >>>
     }
 
     updateCameraPosition();
@@ -2360,4 +2478,13 @@ function isPlayerOnRoad(position) {
     // Check if the tile is a road tile
     return tile && (tile.type?.startsWith('road_') || tile.type === 'startfinish');
 }
+
+// <<< ADDED: Lerp function >>>
+function lerp(start, end, t) {
+    return start * (1 - t) + end * t;
+}
+
+// <<< ADDED: State for gradual off-road transition >>>
+let previousGroundType = 'road'; // Assume starting on road
+let offRoadEntryTimestamp = 0;
 

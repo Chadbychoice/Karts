@@ -310,7 +310,7 @@ const gameState = {
     state: 'character-selection',
     players: {},
     readyPlayers: new Set(),
-    currentCourse: 'rushing'
+    currentCourse: 'untestable'
 };
 
 // Add collision detection
@@ -654,6 +654,7 @@ io.on('connection', (socket) => {
 
     // Handle player state updates
     socket.on('playerUpdateState', (data) => {
+        console.log(`[Debug] playerUpdateState received for ${socket.id}`);
         const player = gameState.players[socket.id]; 
         if (player) {
             // Store incoming data safely
@@ -698,7 +699,7 @@ io.on('connection', (socket) => {
                     }
 
                     if (groundTile && (groundTile.type === 'grass' || groundTile.type === 'mud')) {
-                        const slowdownFactor = 0.8; // Adjust this value as needed
+                        const slowdownFactor = 0.1; // <<< CHANGED: Adjust this value as needed (was 0.9)
                         player.velocity *= slowdownFactor;
                         // Optional: Log the slowdown
                         console.log(`Player ${socket.id} slowed on ${groundTile.type}. New velocity: ${player.velocity.toFixed(2)}`);
@@ -758,7 +759,7 @@ io.on('connection', (socket) => {
                       // 5. Broadcast state to OTHERS (using the final decided state)
                       const stateToBroadcast = gameState.players[socket.id]; // Get the potentially reverted state
                       if (stateToBroadcast && !isNaN(stateToBroadcast.position.x) && !isNaN(stateToBroadcast.position.z)) {
-                          socket.broadcast.emit('updatePlayerPosition', socket.id, stateToBroadcast.position, stateToBroadcast.rotation);
+                          socket.broadcast.emit('updatePlayerPosition', socket.id, stateToBroadcast.position, stateToBroadcast.rotation, stateToBroadcast.velocity);
                       } else {
                            console.error(`Player ${socket.id} state invalid before broadcast. Not broadcasting position.`);
                       }
@@ -766,7 +767,7 @@ io.on('connection', (socket) => {
                       // 6. Send correction back to the originating client ONLY IF state was significantly modified AND kept
                       if (collisionModifiedState && significantChange && stateToBroadcast && !isNaN(stateToBroadcast.position.x) && !isNaN(stateToBroadcast.position.z)) {
                            console.log(`---> Sending position correction back to client ${socket.id} (Significant change: ${Math.sqrt(posChangeDistanceSq).toFixed(3)})`);
-                           socket.emit('updatePlayerPosition', socket.id, stateToBroadcast.position, stateToBroadcast.rotation); 
+                           socket.emit('updatePlayerPosition', socket.id, stateToBroadcast.position, stateToBroadcast.rotation, stateToBroadcast.velocity); 
                       } else if (collisionModifiedState && !significantChange) {
                            // This case should now not happen due to revert logic above
                            console.log(`   (Skipping correction for ${socket.id}: Reverted change below threshold)`);
@@ -778,7 +779,7 @@ io.on('connection', (socket) => {
                  console.warn(`Skipping collision checks for ${socket.id} due to invalid state before checks.`);
                  // If state was invalid BEFORE checks, broadcast original client data if valid?
                   if (clientUpdateData.position && clientUpdateData.rotation && !isNaN(clientUpdateData.position.x) && !isNaN(clientUpdateData.position.z)) {
-                       socket.broadcast.emit('updatePlayerPosition', socket.id, clientUpdateData.position, clientUpdateData.rotation);
+                       socket.broadcast.emit('updatePlayerPosition', socket.id, clientUpdateData.position, clientUpdateData.rotation, clientUpdateData.velocity);
                   }
             }
         } else {
