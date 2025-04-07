@@ -1827,7 +1827,7 @@ function initializeRaceScene(initialPlayers, options) {
 
     // Initialize effects
     initializeSharedSparkSystem(); // Call is now after definition
-    initializeSpeedLines();
+    // initializeSpeedLines(); // <<< REMOVED
 
     // Start animation loop if not already running
     if (!animationFrameId) {
@@ -1911,7 +1911,7 @@ function animate() {
         updateDriftParticles(playerId);
         updateBoostFlame(playerId, now);
     }
-    updateSpeedLines(); // <<< ADDED: Update speed lines
+    // updateSpeedLines(); // <<< REMOVED
 
     composer.render(); // Render via EffectComposer
 
