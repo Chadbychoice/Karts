@@ -680,12 +680,22 @@ io.on('connection', (socket) => {
             // <<< ADDED: Ground Type Slowdown >>>
             const currentCourseData = courses[gameState.currentCourse];
             if (currentCourseData && currentCourseData.rawEditorTiles && player.position) {
-                const gridX = Math.round(player.position.x / EDITOR_TILE_SIZE + EDITOR_GRID_WIDTH / 2);
-                const gridY = Math.round(player.position.z / EDITOR_TILE_SIZE + EDITOR_GRID_HEIGHT / 2); // Editor uses Y for Z-axis
+                const worldX = player.position.x;
+                const worldZ = player.position.z;
+                const gridX = Math.round(worldX / EDITOR_TILE_SIZE + EDITOR_GRID_WIDTH / 2);
+                const gridY = Math.round(worldZ / EDITOR_TILE_SIZE + EDITOR_GRID_HEIGHT / 2); // Editor uses Y for Z-axis
+                const tileIndex = gridY * EDITOR_GRID_WIDTH + gridX;
+
+                console.log(`[GroundCheck] Player ${socket.id}: World(${worldX.toFixed(2)}, ${worldZ.toFixed(2)}) -> Grid(${gridX}, ${gridY}) -> Index(${tileIndex})`);
 
                 if (gridX >= 0 && gridX < EDITOR_GRID_WIDTH && gridY >= 0 && gridY < EDITOR_GRID_HEIGHT) {
-                    const tileIndex = gridY * EDITOR_GRID_WIDTH + gridX;
                     const groundTile = currentCourseData.rawEditorTiles[tileIndex];
+
+                    if (groundTile) {
+                        console.log(`[GroundCheck] Player ${socket.id}: Tile Type = ${groundTile.type}`);
+                    } else {
+                        console.log(`[GroundCheck] Player ${socket.id}: No tile data found at index ${tileIndex}`);
+                    }
 
                     if (groundTile && (groundTile.type === 'grass' || groundTile.type === 'mud')) {
                         const slowdownFactor = 0.8; // Adjust this value as needed
