@@ -475,28 +475,40 @@ function checkCollisions(gameState) {
             if (!solidObstacleTypes.has(obstacle.type)) return;
             
             // --- Obstacle Validation ---
-            const obsWidth = (typeof obstacle.width === 'number' && !isNaN(obstacle.width)) ? obstacle.width : EDITOR_TILE_SIZE;
-            const obsLength = (typeof obstacle.length === 'number' && !isNaN(obstacle.length)) ? obstacle.length : EDITOR_TILE_SIZE;
-            if (typeof obstacle.x !== 'number' || isNaN(obstacle.x) || typeof obstacle.z !== 'number' || isNaN(obstacle.z)) {
-                 console.warn(`Skipping obstacle collision check with type ${obstacle.type} due to invalid obstacle position:`, obstacle);
-                 return; 
+             // Ensure obstacle position is valid FIRST
+             if (typeof obstacle.x !== 'number' || isNaN(obstacle.x) || typeof obstacle.z !== 'number' || isNaN(obstacle.z)) {
+                  console.warn(`Skipping obstacle collision check with type ${obstacle.type} due to invalid obstacle position:`, obstacle);
+                  return; 
+             }
+             // Use a fixed, smaller hitbox for solid obstacles, ignoring course data width/length
+             const OBSTACLE_HALF_SIZE = 0.5; // Makes obstacles 1x1 collision box
+             const obstacleHalfWidth = OBSTACLE_HALF_SIZE;
+             const obstacleHalfLength = OBSTACLE_HALF_SIZE;
+            
+            // --- Broad-Phase Check (Simple Distance) ---
+            const dx = player.position.x - obstacle.x;
+            const dz = player.position.z - obstacle.z;
+            const distanceSq = dx * dx + dz * dz;
+            const BROAD_PHASE_DISTANCE_SQ = 25; // Check AABB only if player is within 5 units (sqrt(25))
+
+            if (distanceSq > BROAD_PHASE_DISTANCE_SQ) {
+                 // console.log(`  Skipping obstacle ${obstacle.type} (Broad phase: distanceSq=${distanceSq.toFixed(2)} > ${BROAD_PHASE_DISTANCE_SQ})`); // Optional verbose log
+                 return; // Skip AABB check if too far
             }
             
-            // <<< ADDED DIAGNOSTIC LOG >>>
-            // Log every obstacle being checked against this player
-            console.log(`  [Check] Player ${player.id} (Pos: ${player.position.x.toFixed(2)},${player.position.z.toFixed(2)}) vs Obstacle ${obstacle.type} (Pos: ${obstacle.x.toFixed(2)},${obstacle.z.toFixed(2)})`);
+             // <<< ADDED DIAGNOSTIC LOG (Now after broad-phase) >>>
+             console.log(`  [Check AABB] Player ${player.id} (Pos: ${player.position.x.toFixed(2)},${player.position.z.toFixed(2)}) vs Obstacle ${obstacle.type} (Pos: ${obstacle.x.toFixed(2)},${obstacle.z.toFixed(2)}) - DistSq: ${distanceSq.toFixed(2)}`);
 
-
-            // --- AABB Check (ensure no NaN inputs) ---
-            // Further reduce player hitbox size
-            const PLAYER_HALF_WIDTH = 0.4; // Previous: 0.7 
-            const obstacleHalfWidth = obsWidth / 2.0;
-            const obstacleHalfLength = obsLength / 2.0;
+            // --- AABB Check --- (Player hitbox is already reduced)
+            const PLAYER_HALF_WIDTH = 0.4; 
             
+            // Calculate player bounds
             const playerMinX = player.position.x - PLAYER_HALF_WIDTH;
             const playerMaxX = player.position.x + PLAYER_HALF_WIDTH;
             const playerMinZ = player.position.z - PLAYER_HALF_WIDTH;
             const playerMaxZ = player.position.z + PLAYER_HALF_WIDTH;
+            
+            // Calculate obstacle bounds (using fixed size now)
             const obstacleMinX = obstacle.x - obstacleHalfWidth;
             const obstacleMaxX = obstacle.x + obstacleHalfWidth;
             const obstacleMinZ = obstacle.z - obstacleHalfLength;

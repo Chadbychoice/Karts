@@ -587,8 +587,19 @@ socket.on('playerLeft', (playerId) => {
 });
 
 socket.on('updatePlayerPosition', (playerId, position, rotation) => {
-     // console.log(`Received updatePlayerPosition for ${playerId}`); // Reduce logging noise
+     // console.log(`Received updatePlayerPosition for ${playerId}`);
     if (!players[playerId]) return; // Ignore if player doesn't exist locally
+
+     // --- Apply Cooldown for Local Player --- 
+     if (playerId === localPlayerId) {
+         console.log("<-- Received server correction. Applying cooldown.");
+         canSendUpdate = false;
+         // Clear the cooldown after a short delay
+         setTimeout(() => {
+              console.log("Client update cooldown finished.");
+              canSendUpdate = true;
+         }, CLIENT_UPDATE_COOLDOWN);
+     }
 
      // Store the received state (ground level X/Z)
      if (position) {
@@ -1194,16 +1205,19 @@ function updateCameraPosition() {
 
 let lastUpdateTime = 0;
 const updateInterval = 100; // Send updates every 100ms (10 times per second)
+let canSendUpdate = true; // Flag to control sending updates
+const CLIENT_UPDATE_COOLDOWN = 150; // ms to wait after receiving server correction
 
 function sendLocalPlayerUpdate() {
     const now = Date.now();
-    // Check player data existence before sending
-    if (now - lastUpdateTime > updateInterval && localPlayerId && players[localPlayerId] && players[localPlayerId].position && players[localPlayerId].rotation) {
+    // Check player data existence AND cooldown flag before sending
+    if (canSendUpdate && now - lastUpdateTime > updateInterval && localPlayerId && players[localPlayerId] && players[localPlayerId].position && players[localPlayerId].rotation) {
         const playerState = players[localPlayerId];
-        // Send only necessary data (position and rotation)
+        // Send only necessary data
         const updateData = {
-            position: playerState.position,
+            position: { ...playerState.position, y: 0 }, // Ensure ground level Y is sent
             rotation: playerState.rotation,
+            velocity: playerState.velocity // Send velocity too
         };
 
         socket.emit('playerUpdateState', updateData);
