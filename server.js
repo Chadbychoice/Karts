@@ -372,34 +372,28 @@ function checkCollisions(gameState) {
                 const nz = dz / distance;
                 const separationForce = overlap * 3.0;
                 
-                // <<< RIGOROUS NaN check before applying separation >>>
+                // <<< TEMPORARILY DISABLE P2P POSITIONAL CORRECTION FOR JITTER DEBUG >>>
+                /*
                 if (!isNaN(nx) && !isNaN(nz) && !isNaN(separationForce)) {
-                     // Store positions before applying change for logging
-                     // const posA_before = { ...playerA.position };
-                     // const posB_before = { ...playerB.position };
-
                     playerA.position.x += nx * separationForce;
                     playerA.position.z += nz * separationForce;
                     playerB.position.x -= nx * separationForce;
                     playerB.position.z -= nz * separationForce;
                     
-                     // <<< RIGOROUS NaN check AFTER applying separation >>>
                      if (isNaN(playerA.position.x) || isNaN(playerA.position.z)) {
                           console.error(`!!! FATAL: Player A (${playerA.id}) position became NaN AFTER P2P separation!`);
-                          // Attempt to revert or reset? Reverting might be complex if one is NaN, other not.
-                          // Resetting to a safe state might be better. For now, log error.
-                          // playerA.position = posA_before; // Example revert - CAREFUL
                      }
                      if (isNaN(playerB.position.x) || isNaN(playerB.position.z)) {
                           console.error(`!!! FATAL: Player B (${playerB.id}) position became NaN AFTER P2P separation!`);
-                          // playerB.position = posB_before;
                      }
 
                 } else {
                     console.warn(`!!! Skipping P2P position separation due to NaN values (nx=${nx}, nz=${nz}, force=${separationForce}).`);
                 }
+                */
+                // <<< END TEMPORARY DISABLE >>>
                 
-                // ... (existing velocity exchange with NaN checks) ...
+                // Keep velocity exchange logic (less likely to cause jitter)
                  const restitution = 0.8;
                  let tempVel = playerA.velocity ?? 0;
                  let playerBVel = playerB.velocity ?? 0;
