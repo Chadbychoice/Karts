@@ -480,9 +480,8 @@ function checkCollisions(gameState) {
             const obstacleHalfWidth = OBSTACLE_HALF_SIZE;
             const obstacleHalfLength = OBSTACLE_HALF_SIZE;
             
-            // <<< CORRECTED: Check for actual specific block/tire types >>>
-            const specificTypes = ['tiresred', 'tireswhite', 'blueblock', 'greenblock', 'darkgreenblock', 'redblock', 'yellowblock'];
-            if (specificTypes.includes(obstacle.type)) {
+            // <<< ADDED: Custom size for specific types >>>
+            if (obstacle.type === 'tires' || obstacle.type === 'blocks') {
                 obstacleHalfWidth = 1.0; // Larger half-size (2.0 width)
                 obstacleHalfLength = 1.0; // Larger half-size (2.0 length)
             }
