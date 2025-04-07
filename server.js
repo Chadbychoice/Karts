@@ -466,17 +466,15 @@ function checkCollisions(gameState) {
         obstacles.forEach(obstacle => {
             if (!solidObstacleTypes.has(obstacle.type)) return;
             
-            // --- Obstacle Validation ---
-             if (typeof obstacle.x !== 'number' || isNaN(obstacle.x) || typeof obstacle.z !== 'number' || isNaN(obstacle.z)) {
-                  console.warn(`Skipping obstacle collision check with type ${obstacle.type} due to invalid obstacle position:`, obstacle);
-                  return; 
-             }
-             const OBSTACLE_HALF_SIZE = 0.7;
-             const obstacleHalfWidth = OBSTACLE_HALF_SIZE;
-             const obstacleHalfLength = OBSTACLE_HALF_SIZE;
+            // Ensure obstacle position is valid FIRST
+            // ... validation ...
+            // Use a fixed hitbox for solid obstacles, adjust size as needed
+            const OBSTACLE_HALF_SIZE = 0.8; // Previous: 0.7, makes obstacles 1.6x1.6 box
+            const obstacleHalfWidth = OBSTACLE_HALF_SIZE;
+            const obstacleHalfLength = OBSTACLE_HALF_SIZE;
             
-             // <<< Diagnostic Log >>>
-             console.log(`  [Check AABB] Player ${player.id} (Pos: ${player.position.x.toFixed(2)},${player.position.z.toFixed(2)}) vs Obstacle ${obstacle.type} (Pos: ${obstacle.x.toFixed(2)},${obstacle.z.toFixed(2)})`);
+            // <<< Diagnostic Log >>>
+            console.log(`  [Check AABB] Player ${player.id} (Pos: ${player.position.x.toFixed(2)},${player.position.z.toFixed(2)}) vs Obstacle ${obstacle.type} (Pos: ${obstacle.x.toFixed(2)},${obstacle.z.toFixed(2)})`);
 
             // --- AABB Check --- 
             const PLAYER_HALF_WIDTH = 0.4; 
