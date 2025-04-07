@@ -92,6 +92,8 @@ renderer.setPixelRatio(window.devicePixelRatio); // Adjust for high DPI screens 
 // renderer.domElement.style.imageRendering = 'pixelated'; // CSS approach
 document.getElementById('game-container').appendChild(renderer.domElement); // <<< Add this
 
+const clock = new THREE.Clock(); // Add clock initialization
+
 let composer; // Declare composer globally
 
 // --- Game State ---
@@ -157,6 +159,14 @@ function preloadAssets() {
         { key: '/textures/stripedlineflip.png', type: 'texture' }
     ];
 
+    // Add smoke textures to preload list
+    for (let i = 1; i <= 7; i++) {
+        assetsToLoad.push({ 
+            key: `/Sprites/smoke/smoke${i}.png`, 
+            type: 'texture' 
+        });
+    }
+
     // Add element textures to preload list dynamically
     elementTexturesToPreload.forEach(elementType => {
         assetsToLoad.push({ 
@@ -170,17 +180,6 @@ function preloadAssets() {
     const sparkTexturePaths = [];
     for (let i = 1; i <= 5; i++) {
         sparkTexturePaths.push(`/Sprites/sparks/spark${i}.png`);
-    }
-
-    // Add smoke texture loading
-    const smokeTextures = [];
-    for (let i = 1; i <= 7; i++) {
-        const texture = textureLoader.load(`/Sprites/smoke/smoke${i}.png`, (tex) => {
-            tex.magFilter = THREE.NearestFilter;
-            tex.minFilter = THREE.NearestFilter;
-            checkAllAssetsLoaded();
-        });
-        smokeTextures.push(texture);
     }
 
     const totalAssets = assetsToLoad.length + 7 + sparkTexturePaths.length + 7; // Update total for smoke textures
@@ -2252,6 +2251,9 @@ class SmokeParticle {
         this.mesh.position.y += 0.1; // Slightly above ground
         this.mesh.rotation.z = Math.random() * Math.PI * 2;
         
+        // Make particle face camera
+        this.mesh.material.side = THREE.DoubleSide;
+        
         this.velocity = new THREE.Vector3(
             (Math.random() - 0.5) * 0.02,
             0.02 + Math.random() * 0.02,
@@ -2264,9 +2266,13 @@ class SmokeParticle {
     
     update(delta) {
         this.life -= this.fadeSpeed * delta;
-        this.mesh.position.add(this.velocity);
+        this.mesh.position.add(this.velocity.clone().multiplyScalar(delta * 60));
         this.mesh.material.opacity = this.life * 0.5;
         this.mesh.rotation.z += delta * 0.5;
+        
+        // Make particle always face camera
+        this.mesh.quaternion.copy(camera.quaternion);
+        
         return this.life > 0;
     }
 }
@@ -2277,10 +2283,23 @@ class SmokeSystem {
         this.particles = [];
         this.lastSpawnTime = 0;
         this.spawnInterval = 700; // 0.7 seconds
+        
+        // Cache smoke textures
+        this.smokeTextures = [];
+        for (let i = 1; i <= 7; i++) {
+            const texturePath = `/Sprites/smoke/smoke${i}.png`;
+            if (textures[texturePath]) {
+                this.smokeTextures.push(textures[texturePath]);
+            }
+        }
+        
+        if (this.smokeTextures.length === 0) {
+            console.warn('No smoke textures loaded!');
+        }
     }
     
     spawnSmoke(position, isOnRoad) {
-        if (!isOnRoad) return;
+        if (!isOnRoad || this.smokeTextures.length === 0) return;
         
         const now = Date.now();
         if (now - this.lastSpawnTime < this.spawnInterval) return;
@@ -2295,7 +2314,7 @@ class SmokeSystem {
                 (Math.random() - 0.5) * 0.3
             );
             const spawnPos = position.clone().add(offset);
-            const texture = smokeTextures[Math.floor(Math.random() * smokeTextures.length)];
+            const texture = this.smokeTextures[Math.floor(Math.random() * this.smokeTextures.length)];
             const particle = new SmokeParticle(spawnPos, texture);
             this.scene.add(particle.mesh);
             this.particles.push(particle);
@@ -2323,6 +2342,13 @@ class SmokeSystem {
 }
 
 let smokeSystem;
+
+// Helper function to get tile from grid coordinates
+function getTileFromGrid(x, y, editorTileGrid) {
+    if (!editorTileGrid || !Array.isArray(editorTileGrid)) return null;
+    // Find the tile in the flat array 
+    return editorTileGrid.find(t => t.x === x && t.y === y);
+}
 
 // Add helper function to check if player is on road
 function isPlayerOnRoad(position) {
