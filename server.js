@@ -599,12 +599,18 @@ io.on('connection', (socket) => {
         isSpectator: false
     };
 
-    // Send initial state to new player
-    socket.emit('updateGameState', gameState.state, gameState.players, {
+    // Always send character-selection state to newly connected player
+    socket.emit('updateGameState', 'character-selection', gameState.players, {
         courseId: gameState.currentCourse,
         courseData: currentValidCourse,
         editorTiles: courses[gameState.currentCourse]?.rawEditorTiles
     });
+
+    // If racing already in progress, other players will stay in racing state
+    if (gameState.state === 'racing') {
+        // Only broadcast to other players, not the new one
+        socket.broadcast.emit('playerJoined', socket.id, gameState.players[socket.id]);
+    }
 
     // Handle character selection
     socket.on('playerSelectCharacter', (characterId) => {
@@ -640,18 +646,18 @@ io.on('connection', (socket) => {
                 return; // Prevent emitting bad state
             }
 
-            // Send updated game state to all players
+            // Send updated game state to all clients
             io.emit('updateGameState', gameState.state, gameState.players, {
                 courseId: gameState.currentCourse,
                 courseData: courseToSend,
                 editorTiles: courses[gameState.currentCourse]?.rawEditorTiles
             });
             
-            // Additionally, send a specific join message to the new player
-            socket.emit('playerJoinedRace', {
-                position: gameState.players[socket.id].position,
-                rotation: gameState.players[socket.id].rotation,
-                message: "You have joined an in-progress race. Good luck!"
+            // Send immediate racing state update to the joining player
+            socket.emit('updateGameState', 'racing', gameState.players, {
+                courseId: gameState.currentCourse,
+                courseData: courseToSend,
+                editorTiles: courses[gameState.currentCourse]?.rawEditorTiles
             });
         }
     });

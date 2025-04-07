@@ -53,13 +53,12 @@ socket.on('connect_error', (error) => {
 });
 
 socket.on('connect', () => {
-    console.log('Connected to server');
-    updateConnectionStatus('connected');
-    // If connected with polling, try to upgrade to WebSocket
-    if (!socket.io.opts.transports.includes('websocket')) {
-        console.log('Attempting to upgrade to WebSocket...');
-        socket.io.opts.transports = ['websocket', 'polling'];
-    }
+    console.log('Connected to server!', socket.id);
+    localPlayerId = socket.id; // Store our own ID
+    
+    // Ensure character selection is shown immediately on connect
+    characterSelectionOverlay.style.display = 'flex';
+    waitingScreenOverlay.style.display = 'none';
 });
 
 socket.on('disconnect', (reason) => {
@@ -366,10 +365,25 @@ let characterIds; // Declare globally
 
 // <<< Restoring Function Definition >>>
 function showCharacterSelection() {
+    console.log("Showing character selection screen");
+    
+    // Hide the race scene elements if they're visible
+    if (isSceneInitialized) {
+        // Make the scene invisible but don't destroy it completely
+        scene.visible = false;
+    }
+    
+    // Ensure the character selection overlay is visible with flex display
     characterSelectionOverlay.style.display = 'flex';
     waitingScreenOverlay.style.display = 'none';
+    
+    // Set up the character selection UI
     setupCharacterSelection();
+    
+    // Re-attach the keydown event listener to ensure it's active
+    document.removeEventListener('keydown', handleCharacterSelectionInput);
     document.addEventListener('keydown', handleCharacterSelectionInput);
+    console.log("Character selection keydown handler attached");
 }
 
 function setupCharacterSelection() {
@@ -576,39 +590,65 @@ socket.on('disconnect', () => {
 });
 
 socket.on('updateGameState', (state, serverPlayers, options) => {
-    console.log('Received game state update:', state, options); // Log received options
+    console.log('Received game state update:', state, options);
+    
+    // Store the previous state to detect transitions
+    const previousState = currentGameState;
+    
+    // Update current state
     currentGameState = state;
     players = serverPlayers || {}; // Ensure players is initialized even if empty
     
-    // <<< STORE received editor tiles >>>
+    // Store received editor tiles
     if (options?.editorTiles) {
         currentCourseEditorTiles = options.editorTiles;
     } else {
         currentCourseEditorTiles = []; // Clear if not received
     }
 
+    // Handle racing state
     if (state === 'racing') {
         console.log('Racing state detected. Players:', players);
-        waitingScreenOverlay.style.display = 'none'; // Hide waiting screen
-        if (!raceInitialized) {
-            console.log('Initializing race with options:', options); // Log options again here
-            // Pass the entire options.courseData object, or an empty object if it's missing
-            const courseDataToUse = options?.courseData || {}; 
-            console.log('Attempting to create course with data:', courseDataToUse); // Log what's passed to createCourse
-            createCourse(courseDataToUse); // Use the potentially empty object
-            initializeRaceScene(players, options); // options might still be needed for start positions etc.
-            raceInitialized = true;
-           
-    } else {
-             console.log("Race already initialized, updating players only.");
-              // Update players even if race was already initialized
-             updatePlayerObjects(); // Use the function to add/update players
+        
+        // Make character selection invisible
+        characterSelectionOverlay.style.display = 'none';
+        waitingScreenOverlay.style.display = 'none';
+        
+        // If scene was hidden, make it visible again
+        if (isSceneInitialized && !scene.visible) {
+            scene.visible = true;
         }
         
-    } else if (state === 'character-selection') {
+        // Check if the race needs to be initialized
+        if (!isSceneInitialized) {
+            console.log('Initializing race with options:', options);
+            const courseDataToUse = options?.courseData || {}; 
+            console.log('Creating course with data:', courseDataToUse);
+            initializeRaceScene(players, options);
+            
+            // Ensure the proper camera view for the player
+            if (localPlayerId && players[localPlayerId]) {
+                setupInitialCameraPosition();
+                console.log("Camera positioned for racing view");
+            }
+        } else {
+            console.log("Race already initialized, updating players only");
+            // Update players even if race was already initialized
+            updatePlayerObjects();
+            
+            // If this is a late join, ensure camera is positioned correctly
+            if (localPlayerId && players[localPlayerId] && playerObjects[localPlayerId]) {
+                setupInitialCameraPosition();
+                console.log("Late join - Camera positioned for racing view");
+            }
+        }
+    } 
+    // Handle character selection state
+    else if (state === 'character-selection') {
+        console.log('Character selection state detected');
+        
+        // Always show character selection again, even if we were previously in racing
         showCharacterSelection();
-        waitingScreenOverlay.style.display = 'none';
-        characterSelectionOverlay.style.display = 'block';
     }
 });
 
@@ -1902,33 +1942,9 @@ function initializeRaceScene(initialPlayers, options) {
         addPlayerObject(playerId, playerData);
     });
 
-    // Set camera for local player
-    if (localPlayerId && players[localPlayerId]) {
-        const localPlayer = players[localPlayerId];
-        camera.position.set(
-            localPlayer.position.x,
-            localPlayer.position.y + 6,
-            localPlayer.position.z + 6
-        );
-        camera.lookAt(
-            localPlayer.position.x,
-            localPlayer.position.y + 3.5,
-            localPlayer.position.z
-        );
-        console.log("Initial camera set for local player", localPlayerId);
-        console.log("  -> Cam Pos:", camera.position.x.toFixed(2), camera.position.y.toFixed(2), camera.position.z.toFixed(2));
-        console.log("  -> LookAt:", localPlayer.position.x.toFixed(2), (localPlayer.position.y + 3.5).toFixed(2), localPlayer.position.z.toFixed(2));
-    } else {
-        // Default camera position for spectators
-        camera.position.set(0, 10, 15);
-        camera.lookAt(0, 0, 0);
-        console.log("Setting default camera position (spectator/no local player).");
-    }
-
     // Initialize effects
-    initializeSharedSparkSystem(); // Call is now after definition
-    // initializeSpeedLines(); // <<< REMOVED
-
+    initializeSharedSparkSystem();
+    
     // Initialize smoke system
     smokeSystem = new SmokeSystem(scene);
 
