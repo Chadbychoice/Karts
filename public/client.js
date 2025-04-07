@@ -1699,6 +1699,55 @@ function createCourse(courseData) {
 
     console.log(`Course creation completed. Added ${currentCourseObjects.length} elements.`);
 }
+function initializeSharedSparkSystem() { 
+    console.log("Initializing Shared Spark System...");
+    // Cache loaded spark textures (ensure textures are preloaded)
+    for (let i = 1; i <= 5; i++) {
+        const path = `/Sprites/sparks/spark${i}.png`;
+        if (textures[path]) {
+            sparkTexturesLoaded.push(textures[path]);
+        } else {
+            console.warn(`Spark texture not preloaded: ${path}`);
+        }
+    }
+    if (sparkTexturesLoaded.length === 0) {
+        console.warn("No spark textures loaded, cannot initialize spark system.");
+        return;
+    }
+
+    const sparkGeometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(MAX_SPARKS * 3);
+    for (let i = 0; i < MAX_SPARKS; i++) {
+        positions[i * 3 + 1] = -10000; // Y position far away
+    }
+    sparkGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    sparkGeometry.setDrawRange(0, 0); // Initially draw nothing
+
+    const sparkMaterial = new THREE.PointsMaterial({
+        size: 0.6, // Adjusted size
+        map: sparkTexturesLoaded[0], // Default map, will be updated per spark maybe?
+        transparent: true,
+        alphaTest: 0.01,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending, 
+        sizeAttenuation: true,
+        vertexColors: false // Not using vertex colors here
+    });
+
+    sparkSystem = new THREE.Points(sparkGeometry, sparkMaterial);
+    sparkSystem.frustumCulled = false; // Important for particles
+    scene.add(sparkSystem);
+
+    // Initialize particle data pool
+    for (let i = 0; i < MAX_SPARKS; i++) {
+        sparkParticles.push({ 
+            life: 0, 
+            velocity: new THREE.Vector3(), 
+            baseSize: 0 
+        });
+    }
+    console.log("Shared Spark System Initialized.");
+}
 
 // --- Race Initialization ---
 function initializeRaceScene(initialPlayers, options) {
@@ -1777,7 +1826,7 @@ function initializeRaceScene(initialPlayers, options) {
     }
 
     // Initialize effects
-    initializeSharedSparkSystem(); // RENAMED FUNCTION CALL
+    initializeSharedSparkSystem(); // Call is now after definition
     initializeSpeedLines();
 
     // Start animation loop if not already running
@@ -2125,4 +2174,23 @@ function cleanupRaceScene() {
 
 // --- Collision Handling ---
 // ... existing code ...
+
+// --- RENAMED Shared Spark System --- 
+let sparkSystem; // THREE.Points object
+const MAX_SPARKS = 1000; 
+const SPARK_LIFESPAN = 600; 
+let sparkParticles = []; 
+const sparkTexturesLoaded = []; 
+
+// MOVED Function Definition UP
+
+// RENAMED and MODIFIED Function (Remains here)
+function createSparksAtPoint(origin, intensity = 0.5, range = 1.0) {
+// ... function body ...
+}
+
+// RENAMED Function (Remains here)
+function updateSharedSparks() {
+// ... function body ...
+}
 
