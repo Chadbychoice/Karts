@@ -310,7 +310,7 @@ const gameState = {
 function checkCollisions(gameState) {
     const players = Object.values(gameState.players);
     const currentCourse = courses[gameState.currentCourse];
-    const obstacles = currentCourse?.obstacles || []; // Get obstacles for the current course
+    const obstacles = currentCourse?.obstacles || [];
     const collisions = [];
     
     // --- Player vs Player Collisions --- 
@@ -318,214 +318,259 @@ function checkCollisions(gameState) {
         for (let j = i + 1; j < players.length; j++) {
             const playerA = players[i];
             const playerB = players[j];
-            
-            // --- ADDED: Stricter Validation --- 
-            if (!playerA || !playerB) {
-                 console.warn('Skipping collision check - player object missing');
+
+             // <<< RIGOROUS NaN Check: Player A >>>
+             if (!playerA || !playerA.position || 
+                 typeof playerA.position.x !== 'number' || isNaN(playerA.position.x) || 
+                 typeof playerA.position.z !== 'number' || isNaN(playerA.position.z)) {
+                 console.error(`!!! FATAL: Player A (${playerA?.id}) has invalid position BEFORE P2P check:`, playerA?.position);
+                 // How to handle this? Skip check? Attempt reset?
+                 // For now, skip this pair to prevent NaN propagation.
+                 continue; 
+             }
+             // <<< RIGOROUS NaN Check: Player B >>>
+              if (!playerB || !playerB.position || 
+                  typeof playerB.position.x !== 'number' || isNaN(playerB.position.x) || 
+                  typeof playerB.position.z !== 'number' || isNaN(playerB.position.z)) {
+                  console.error(`!!! FATAL: Player B (${playerB?.id}) has invalid position BEFORE P2P check:`, playerB?.position);
+                  continue; 
+              }
+
+
+            // Calculate distance between players (already has NaN check for distanceSquared)
+            // ... (existing dx, dz, distanceSquared calculation) ...
+             const dx = playerA.position.x - playerB.position.x;
+             const dz = playerA.position.z - playerB.position.z;
+             const distanceSquared = dx * dx + dz * dz;
+             if (isNaN(distanceSquared) || distanceSquared < 0) {
+                 console.warn(`Skipping P2P collision - Invalid distanceSquared (${distanceSquared}) between ${playerA.id} and ${playerB.id}`);
                  continue;
-            }
-            if (!playerA.position || typeof playerA.position.x !== 'number' || typeof playerA.position.z !== 'number' || isNaN(playerA.position.x) || isNaN(playerA.position.z)) {
-                console.warn(`Skipping collision check - Invalid position for player A (${playerA.id}):`, playerA.position);
-                continue;
-            }
-             if (!playerB.position || typeof playerB.position.x !== 'number' || typeof playerB.position.z !== 'number' || isNaN(playerB.position.x) || isNaN(playerB.position.z)) {
-                console.warn(`Skipping collision check - Invalid position for player B (${playerB.id}):`, playerB.position);
-                continue;
-            }
-            // --- END ADDED Validation ---
+             }
+             const distance = Math.sqrt(distanceSquared);
+             // <<< ADDED: Explicit check for NaN distance itself >>>
+             if (isNaN(distance)) {
+                  console.error(`!!! FATAL: Calculated NaN distance between ${playerA.id} and ${playerB.id}. Positions: A=${JSON.stringify(playerA.position)}, B=${JSON.stringify(playerB.position)}`);
+                  continue; // Skip this pair
+             }
+
+            // Collision radius
+            const collisionThreshold = 2.5;
             
-            // Calculate distance between players
-            const dx = playerA.position.x - playerB.position.x;
-            const dz = playerA.position.z - playerB.position.z;
-            // Add check before sqrt
-            const distanceSquared = dx * dx + dz * dz;
-            if (isNaN(distanceSquared) || distanceSquared < 0) {
-                 console.warn(`Skipping collision - Invalid distanceSquared (${distanceSquared}) between ${playerA.id} and ${playerB.id}`);
-                 continue;
-            }
-            const distance = Math.sqrt(distanceSquared);
-            
-            // Log distance for debugging (only if valid)
-            // console.log(`Distance between players ${playerA.id} and ${playerB.id}: ${distance}`); // Reduce verbose logging
-            
-            // Collision radius (sum of both kart radii)
-            const collisionThreshold = 2.5; // Adjusted for better detection
-            
-            if (distance < collisionThreshold && distance > 0) { // Add distance > 0 check
-                console.log(`Player-Player Collision detected! Distance: ${distance}`); // Specific log
+            if (distance < collisionThreshold && distance > 0) {
+                console.log(`Player-Player Collision detected! Distance: ${distance.toFixed(3)}`);
                 
-                // Calculate collision point (midpoint between players)
-                const collisionPoint = {
-                    x: (playerA.position.x + playerB.position.x) / 2,
-                    y: 1.0, // Fixed height for sparks
-                    z: (playerA.position.z + playerB.position.z) / 2
-                };
-                
-                // Calculate collision response
+                // ... (existing collision point calculation) ...
+                 const collisionPoint = {
+                     x: (playerA.position.x + playerB.position.x) / 2,
+                     y: 1.0,
+                     z: (playerA.position.z + playerB.position.z) / 2
+                 };
+
+                // Calculate response
                 const overlap = collisionThreshold - distance;
-                
-                // Normalize collision vector
                 const nx = dx / distance;
                 const nz = dz / distance;
-                
-                // Strong immediate separation to prevent passing through
                 const separationForce = overlap * 3.0;
                 
-                // Ensure separation doesn't introduce NaN
+                // <<< RIGOROUS NaN check before applying separation >>>
                 if (!isNaN(nx) && !isNaN(nz) && !isNaN(separationForce)) {
+                     // Store positions before applying change for logging
+                     // const posA_before = { ...playerA.position };
+                     // const posB_before = { ...playerB.position };
+
                     playerA.position.x += nx * separationForce;
                     playerA.position.z += nz * separationForce;
                     playerB.position.x -= nx * separationForce;
                     playerB.position.z -= nz * separationForce;
+                    
+                     // <<< RIGOROUS NaN check AFTER applying separation >>>
+                     if (isNaN(playerA.position.x) || isNaN(playerA.position.z)) {
+                          console.error(`!!! FATAL: Player A (${playerA.id}) position became NaN AFTER P2P separation!`);
+                          // Attempt to revert or reset? Reverting might be complex if one is NaN, other not.
+                          // Resetting to a safe state might be better. For now, log error.
+                          // playerA.position = posA_before; // Example revert - CAREFUL
+                     }
+                     if (isNaN(playerB.position.x) || isNaN(playerB.position.z)) {
+                          console.error(`!!! FATAL: Player B (${playerB.id}) position became NaN AFTER P2P separation!`);
+                          // playerB.position = posB_before;
+                     }
+
                 } else {
-                    console.warn("Skipping position separation due to NaN values.");
+                    console.warn(`!!! Skipping P2P position separation due to NaN values (nx=${nx}, nz=${nz}, force=${separationForce}).`);
                 }
                 
-                // Ensure velocity exchange doesn't introduce NaN
-                const restitution = 0.8;
-                const tempVel = playerA.velocity || 0;
-                const playerBVel = playerB.velocity || 0;
-                if (!isNaN(tempVel) && !isNaN(playerBVel)) {
-                    playerA.velocity = playerBVel * restitution;
-                    playerB.velocity = tempVel * restitution;
-                } else {
-                     console.warn("Skipping velocity exchange due to NaN values.");
-                }
+                // ... (existing velocity exchange with NaN checks) ...
+                 const restitution = 0.8;
+                 let tempVel = playerA.velocity ?? 0;
+                 let playerBVel = playerB.velocity ?? 0;
+                 if (isNaN(tempVel)) { console.warn(`Player A vel NaN before swap (${playerA.id})`); tempVel = 0; }
+                 if (isNaN(playerBVel)) { console.warn(`Player B vel NaN before swap (${playerB.id})`); playerBVel = 0; }
+                 
+                 if (!isNaN(restitution)) { // Check restitution too, though unlikely to be NaN
+                     playerA.velocity = playerBVel * restitution;
+                     playerB.velocity = tempVel * restitution;
+                 } else {
+                      console.warn("!!! Skipping P2P velocity exchange due to NaN restitution.");
+                 }
+                 // Final NaN check for velocity
+                 if(isNaN(playerA.velocity)) { console.error(`!!! Player A vel NaN AFTER swap (${playerA.id})`); playerA.velocity = 0; }
+                 if(isNaN(playerB.velocity)) { console.error(`!!! Player B vel NaN AFTER swap (${playerB.id})`); playerB.velocity = 0; }
                 
-                // Add some sideways velocity for more dynamic collisions
-                const sideForce = Math.abs((playerA.velocity || 0) - (playerB.velocity || 0)) * 0.5;
-                playerA.sideVelocity = (Math.random() - 0.5) * sideForce;
-                playerB.sideVelocity = (Math.random() - 0.5) * sideForce;
+                // ... (existing side velocity - needs NaN check?) ...
+                 const sideForceInput = Math.abs(playerA.velocity - playerB.velocity) * 0.5;
+                 if (!isNaN(sideForceInput)){
+                     playerA.sideVelocity = (Math.random() - 0.5) * sideForceInput;
+                     playerB.sideVelocity = (Math.random() - 0.5) * sideForceInput;
+                      if(isNaN(playerA.sideVelocity)) { console.warn(`Player A sideVel NaN (${playerA.id})`); playerA.sideVelocity = 0;} 
+                      if(isNaN(playerB.sideVelocity)) { console.warn(`Player B sideVel NaN (${playerB.id})`); playerB.sideVelocity = 0;} 
+                 } else {
+                      console.warn("!!! Skipping P2P side force due to NaN input.");
+                      playerA.sideVelocity = 0;
+                      playerB.sideVelocity = 0;
+                 }
+
                 
-                // Create collision event data
-                const collisionData = {
-                    playerA_id: playerA.id,
-                    playerB_id: playerB.id,
-                    collisionPoint: collisionPoint,
-                    intensity: Math.min(Math.max(Math.abs((playerA.velocity || 0) - (playerB.velocity || 0)) / 2, 0.3), 1.0),
-                    sparkRange: Math.min(Math.max(Math.abs((playerA.velocity || 0) - (playerB.velocity || 0)) * 0.8, 0), 2.0)
-                };
-                
-                // Log collision details
-                console.log('Collision details:', collisionData);
-                
-                // Emit collision event
-                io.emit('collisionDetected', collisionData);
-                
-                collisions.push(collisionData);
+                // ... (existing collision event data creation - ensure no NaNs passed) ...
+                 const intensity = Math.min(Math.max(Math.abs(playerA.velocity - playerB.velocity) / 2, 0.3), 1.0);
+                 const sparkRange = Math.min(Math.max(Math.abs(playerA.velocity - playerB.velocity) * 0.8, 0), 2.0);
+                 
+                 // Ensure data sent to client is valid
+                 if (!isNaN(collisionPoint.x) && !isNaN(collisionPoint.y) && !isNaN(collisionPoint.z) && !isNaN(intensity) && !isNaN(sparkRange)) {
+                     const collisionData = {
+                         playerA_id: playerA.id,
+                         playerB_id: playerB.id,
+                         collisionPoint: collisionPoint,
+                         intensity: intensity,
+                         sparkRange: sparkRange
+                     };
+                     console.log('P2P Collision details:', collisionData);
+                     io.emit('collisionDetected', collisionData);
+                     collisions.push(collisionData);
+                 } else {
+                      console.error("!!! Failed to emit P2P collision event due to NaN values in data.", { collisionPoint, intensity, sparkRange });
+                 }
+                 
             }
         }
     }
     
     // --- Player vs Obstacle Collisions --- 
-    // Iterate through each player AFTER potential P2P adjustments
     for (let i = 0; i < players.length; i++) {
         const player = players[i];
         
-        // Basic validation for player state
-        if (!player || !player.position || typeof player.position.x !== 'number' || typeof player.position.z !== 'number' || isNaN(player.position.x) || isNaN(player.position.z)) {
-            console.warn(`Skipping obstacle collision check - Invalid position for player (${player?.id}):`, player?.position);
-            continue; // Skip this player if position is invalid
-        }
-        // Ensure velocity is a number, default to 0 if not
+         // <<< RIGOROUS NaN Check: Player BEFORE Obstacle Check >>>
+         if (!player || !player.position || 
+             typeof player.position.x !== 'number' || isNaN(player.position.x) || 
+             typeof player.position.z !== 'number' || isNaN(player.position.z)) {
+             console.error(`!!! FATAL: Player (${player?.id}) has invalid position BEFORE Obstacle check:`, player?.position);
+             continue; 
+         }
          if (player.velocity === undefined || player.velocity === null || isNaN(player.velocity)) {
-            // console.warn(`Player ${player.id} has invalid velocity (${player.velocity}), setting to 0 for collision check.`); // Optional warning
-            player.velocity = 0; 
+             // console.warn(`Player ${player.id} velocity is NaN/undefined before obstacle check. Setting to 0.`);
+             player.velocity = 0; 
          }
 
+
         obstacles.forEach(obstacle => {
-            // Only check against designated solid types
-            if (!solidObstacleTypes.has(obstacle.type)) {
-                return; // Skip non-solid obstacles
-            }
+            if (!solidObstacleTypes.has(obstacle.type)) return;
             
-            // --- Obstacle Validation ---
-            // Use default size if width/length are missing or invalid
-            const obsWidth = (typeof obstacle.width === 'number' && !isNaN(obstacle.width)) ? obstacle.width : EDITOR_TILE_SIZE;
-            const obsLength = (typeof obstacle.length === 'number' && !isNaN(obstacle.length)) ? obstacle.length : EDITOR_TILE_SIZE;
-            // Ensure obstacle position is valid
+            // --- Obstacle Validation (already includes checks) ---
+            // ... (existing obstacle validation) ...
+             const obsWidth = (typeof obstacle.width === 'number' && !isNaN(obstacle.width)) ? obstacle.width : EDITOR_TILE_SIZE;
+             const obsLength = (typeof obstacle.length === 'number' && !isNaN(obstacle.length)) ? obstacle.length : EDITOR_TILE_SIZE;
              if (typeof obstacle.x !== 'number' || isNaN(obstacle.x) || typeof obstacle.z !== 'number' || isNaN(obstacle.z)) {
-                  console.warn(`Skipping collision check with obstacle type ${obstacle.type} due to invalid position:`, obstacle);
-                  return; // Skip this obstacle if position is invalid
+                  console.warn(`Skipping obstacle collision check with type ${obstacle.type} due to invalid obstacle position:`, obstacle);
+                  return; 
              }
 
-            // --- AABB Collision Check ---
-            // Using player radius approximation for simplicity, treat player as square for AABB
-            const PLAYER_HALF_WIDTH = 1.0; // Adjust as needed based on visual size
+            // --- AABB Check (ensure no NaN inputs) ---
+            const PLAYER_HALF_WIDTH = 1.0; 
             const obstacleHalfWidth = obsWidth / 2.0;
             const obstacleHalfLength = obsLength / 2.0;
             
-            // Calculate player bounds
+            // <<< Add NaN checks for calculated bounds if necessary (depends on inputs being valid) >>>
+             if (isNaN(obstacleHalfWidth) || isNaN(obstacleHalfLength)) {
+                  console.error(`!!! Obstacle ${obstacle.type} has NaN dimensions! Skipping check.`);
+                  return;
+             }
+
             const playerMinX = player.position.x - PLAYER_HALF_WIDTH;
             const playerMaxX = player.position.x + PLAYER_HALF_WIDTH;
             const playerMinZ = player.position.z - PLAYER_HALF_WIDTH;
             const playerMaxZ = player.position.z + PLAYER_HALF_WIDTH;
-            
-            // Calculate obstacle bounds
             const obstacleMinX = obstacle.x - obstacleHalfWidth;
             const obstacleMaxX = obstacle.x + obstacleHalfWidth;
             const obstacleMinZ = obstacle.z - obstacleHalfLength;
             const obstacleMaxZ = obstacle.z + obstacleHalfLength;
 
-            // Check for overlap using AABB
             const collisionX = playerMaxX > obstacleMinX && playerMinX < obstacleMaxX;
             const collisionZ = playerMaxZ > obstacleMinZ && playerMinZ < obstacleMaxZ;
 
             if (collisionX && collisionZ) {
-                // Collision Detected!
-                console.log(`---> OBSTACLE COLLISION DETECTED: Player ${player.id} vs Obstacle ${obstacle.type} at (${obstacle.x.toFixed(2)}, ${obstacle.z.toFixed(2)})`);
+                console.log(`---> OBSTACLE COLLISION DETECTED: Player ${player.id} vs Obstacle ${obstacle.type}`);
                 
-                // --- Simple Bounce Response --- 
-                // Calculate overlap (Minimum Translation Vector - MTV)
-                const overlapX1 = playerMaxX - obstacleMinX; // Positive value
-                const overlapX2 = obstacleMaxX - playerMinX; // Positive value
-                const overlapZ1 = playerMaxZ - obstacleMinZ; // Positive value
-                const overlapZ2 = obstacleMaxZ - playerMinZ; // Positive value
-
-                // Find the smallest positive overlap (MTV magnitude)
+                // --- Response (MTV Calculation) ---
+                const overlapX1 = playerMaxX - obstacleMinX;
+                const overlapX2 = obstacleMaxX - playerMinX;
+                const overlapZ1 = playerMaxZ - obstacleMinZ;
+                const overlapZ2 = obstacleMaxZ - playerMinZ;
                 const mtvX = Math.min(overlapX1, overlapX2);
                 const mtvZ = Math.min(overlapZ1, overlapZ2);
+                
+                // <<< RIGOROUS NaN check for MTV >>>
+                if (isNaN(mtvX) || isNaN(mtvZ)){
+                     console.error(`!!! FATAL: Calculated NaN MTV for obstacle collision! Player: ${player.id}, Obstacle: ${obstacle.type}. Overlaps: X1=${overlapX1}, X2=${overlapX2}, Z1=${overlapZ1}, Z2=${overlapZ2}`);
+                     // Skip applying response if MTV is NaN
+                     return; // Continue to next obstacle
+                }
 
-                // Determine push direction and apply correction along axis of least penetration
+                // --- Apply Position Correction --- 
+                // const posBeforeObstacle = { ...player.position }; // For logging/revert
                 if (mtvX < mtvZ) {
-                    // Push horizontally
-                    const pushDirectionX = player.position.x < obstacle.x ? -1 : 1; // Push away from obstacle center X
-                    player.position.x += pushDirectionX * mtvX; 
-                    console.log(`  Pushing player ${player.id} X by ${pushDirectionX * mtvX}`);
-                     // Dampen velocity perpendicular to collision normal (optional, more complex)
-                     // Reflect velocity along collision normal (optional, more complex)
+                    const pushDirectionX = player.position.x < obstacle.x ? -1 : 1;
+                     if (!isNaN(pushDirectionX)) {
+                         player.position.x += pushDirectionX * mtvX;
+                     } else { console.warn("NaN pushDirectionX in obstacle collision"); }
                 } else {
-                    // Push vertically (on Z axis)
-                    const pushDirectionZ = player.position.z < obstacle.z ? -1 : 1; // Push away from obstacle center Z
-                    player.position.z += pushDirectionZ * mtvZ;
-                    console.log(`  Pushing player ${player.id} Z by ${pushDirectionZ * mtvZ}`);
-                    // Dampen/Reflect velocity (optional)
+                    const pushDirectionZ = player.position.z < obstacle.z ? -1 : 1;
+                     if (!isNaN(pushDirectionZ)) {
+                         player.position.z += pushDirectionZ * mtvZ;
+                     } else { console.warn("NaN pushDirectionZ in obstacle collision"); }
                 }
                 
-                // Reduce player velocity significantly on impact
-                const oldVelocity = player.velocity;
-                player.velocity *= 0.1; // Drastically reduce speed
-                // Prevent reversing if speed was positive
-                 if (oldVelocity > 0 && player.velocity < 0) {
-                     player.velocity = 0; 
+                // <<< RIGOROUS NaN check AFTER applying correction >>>
+                 if (isNaN(player.position.x) || isNaN(player.position.z)) {
+                      console.error(`!!! FATAL: Player (${player.id}) position became NaN AFTER Obstacle separation!`);
+                      // Attempt revert?
+                      // player.position = posBeforeObstacle; 
                  }
-                 // Ensure velocity doesn't become NaN after multiplication
-                 if (isNaN(player.velocity)) {
-                     console.warn(`Player ${player.id} velocity became NaN after obstacle collision! Resetting to 0.`);
-                     player.velocity = 0;
-                 }
-                 console.log(`  Player ${player.id} velocity changed from ${oldVelocity.toFixed(2)} to ${player.velocity.toFixed(2)}`);
 
-                // Optional: Trigger a visual/sound effect via client event
-                 io.to(player.id).emit('obstacleCollision', { 
-                     type: obstacle.type, 
-                     position: { x: obstacle.x, y: (obstacle.y || 0) + 0.5, z: obstacle.z } // Send obstacle position for effect
-                 }); 
+                // --- Apply Velocity Correction --- 
+                const oldVelocity = player.velocity;
+                player.velocity *= 0.1; 
+                 if (isNaN(player.velocity)) {
+                     console.warn(`Player ${player.id} velocity became NaN after obstacle impact! Resetting to 0. Old: ${oldVelocity}`);
+                     player.velocity = 0;
+                 } else {
+                      console.log(`  Player ${player.id} velocity changed from ${oldVelocity.toFixed(2)} to ${player.velocity.toFixed(2)}`);
+                 }
+
+
+                // --- Emit Event (Ensure data validity) --- 
+                 const obstaclePosY = (obstacle.y === undefined || isNaN(obstacle.y)) ? 0 : obstacle.y;
+                 const effectPosY = obstaclePosY + 0.5;
+                 if (!isNaN(obstacle.x) && !isNaN(effectPosY) && !isNaN(obstacle.z)) {
+                     io.to(player.id).emit('obstacleCollision', { 
+                         type: obstacle.type, 
+                         position: { x: obstacle.x, y: effectPosY, z: obstacle.z } 
+                     }); 
+                 } else {
+                      console.error(`!!! Failed to emit obstacleCollision event due to NaN position data. Obstacle:`, obstacle); 
+                 }
             } 
         });
     }
     
-    // Return player-player collisions array (if needed elsewhere, otherwise could be void)
     return collisions.length > 0 ? collisions : null; 
 }
 
