@@ -474,26 +474,25 @@ function checkCollisions(gameState) {
         obstacles.forEach(obstacle => {
             if (!solidObstacleTypes.has(obstacle.type)) return;
             
-            // --- Obstacle Validation (already includes checks) ---
-            // ... (existing obstacle validation) ...
-             const obsWidth = (typeof obstacle.width === 'number' && !isNaN(obstacle.width)) ? obstacle.width : EDITOR_TILE_SIZE;
-             const obsLength = (typeof obstacle.length === 'number' && !isNaN(obstacle.length)) ? obstacle.length : EDITOR_TILE_SIZE;
-             if (typeof obstacle.x !== 'number' || isNaN(obstacle.x) || typeof obstacle.z !== 'number' || isNaN(obstacle.z)) {
-                  console.warn(`Skipping obstacle collision check with type ${obstacle.type} due to invalid obstacle position:`, obstacle);
-                  return; 
-             }
+            // --- Obstacle Validation ---
+            const obsWidth = (typeof obstacle.width === 'number' && !isNaN(obstacle.width)) ? obstacle.width : EDITOR_TILE_SIZE;
+            const obsLength = (typeof obstacle.length === 'number' && !isNaN(obstacle.length)) ? obstacle.length : EDITOR_TILE_SIZE;
+            if (typeof obstacle.x !== 'number' || isNaN(obstacle.x) || typeof obstacle.z !== 'number' || isNaN(obstacle.z)) {
+                 console.warn(`Skipping obstacle collision check with type ${obstacle.type} due to invalid obstacle position:`, obstacle);
+                 return; 
+            }
+            
+            // <<< ADDED DIAGNOSTIC LOG >>>
+            // Log every obstacle being checked against this player
+            console.log(`  [Check] Player ${player.id} (Pos: ${player.position.x.toFixed(2)},${player.position.z.toFixed(2)}) vs Obstacle ${obstacle.type} (Pos: ${obstacle.x.toFixed(2)},${obstacle.z.toFixed(2)})`);
+
 
             // --- AABB Check (ensure no NaN inputs) ---
-            const PLAYER_HALF_WIDTH = 0.7; // Previous: 1.0 
+            // Further reduce player hitbox size
+            const PLAYER_HALF_WIDTH = 0.4; // Previous: 0.7 
             const obstacleHalfWidth = obsWidth / 2.0;
             const obstacleHalfLength = obsLength / 2.0;
             
-            // <<< Add NaN checks for calculated bounds if necessary (depends on inputs being valid) >>>
-             if (isNaN(obstacleHalfWidth) || isNaN(obstacleHalfLength)) {
-                  console.error(`!!! Obstacle ${obstacle.type} has NaN dimensions! Skipping check.`);
-                  return;
-             }
-
             const playerMinX = player.position.x - PLAYER_HALF_WIDTH;
             const playerMaxX = player.position.x + PLAYER_HALF_WIDTH;
             const playerMinZ = player.position.z - PLAYER_HALF_WIDTH;
