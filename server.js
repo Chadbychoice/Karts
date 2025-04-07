@@ -27,7 +27,7 @@ const EDITOR_GRID_HEIGHT = 30; // Match editor.js
 const editorToClientTypeMap = {
     // Tiles -> Terrain/Road
     grass: { clientType: 'grass', category: 'terrain' },
-    mud: { clientType: 'mud', category: 'obstacles' }, // Mud is an obstacle
+    mud: { clientType: 'mud', category: 'terrain' }, 
     road_v: { clientType: 'road', category: 'road' },
     road_h: { clientType: 'road', category: 'road' },
     road_ne: { clientType: 'road', category: 'road' }, 
