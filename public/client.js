@@ -100,6 +100,7 @@ let players = {}; // Store player data { id: { position, rotation, characterId, 
 let localPlayerId = null;
 let raceInitialized = false; // Track if race scene is set up
 let isSceneInitialized = false; // <<< ADD Declaration for this flag
+let currentCourseEditorTiles = []; // <<< ADDED Declaration
 
 // Global variable to track which course to load locally
 let localSelectedCourseId = 1;
