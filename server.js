@@ -47,16 +47,15 @@ const editorToClientTypeMap = {
     // Add mappings for any other editor types
 };
 
-// <<< ADDED: Server-side knowledge of which obstacles are solid >>>
+// Define which obstacle types are solid
 const solidObstacleTypes = new Set([
-    'blueblock',
-    'greenblock',
-    'darkgreenblock',
-    'redblock',
-    'yellowblock',
-    'tiresred',
+    'blueblock', 
+    'greenblock', 
+    'darkgreenblock', 
+    'redblock', 
+    'yellowblock', 
+    'tiresred', 
     'tireswhite'
-    // Note: startgate is a decoration, not an obstacle
 ]);
 
 // --- Translation Function ---
@@ -353,7 +352,7 @@ function checkCollisions(gameState) {
             const collisionThreshold = 2.5; // Adjusted for better detection
             
             if (distance < collisionThreshold && distance > 0) { // Add distance > 0 check
-                console.log(`Collision detected! Distance: ${distance}`);
+                console.log(`Player-Player Collision detected! Distance: ${distance}`); // Specific log
                 
                 // Calculate collision point (midpoint between players)
                 const collisionPoint = {
@@ -378,7 +377,7 @@ function checkCollisions(gameState) {
                     playerA.position.z += nz * separationForce;
                     playerB.position.x -= nx * separationForce;
                     playerB.position.z -= nz * separationForce;
-    } else {
+                } else {
                     console.warn("Skipping position separation due to NaN values.");
                 }
                 
@@ -419,76 +418,115 @@ function checkCollisions(gameState) {
     }
     
     // --- Player vs Obstacle Collisions --- 
+    // Iterate through each player AFTER potential P2P adjustments
     for (let i = 0; i < players.length; i++) {
         const player = players[i];
         
-        // Basic validation for player position
+        // Basic validation for player state
         if (!player || !player.position || typeof player.position.x !== 'number' || typeof player.position.z !== 'number' || isNaN(player.position.x) || isNaN(player.position.z)) {
             console.warn(`Skipping obstacle collision check - Invalid position for player (${player?.id}):`, player?.position);
-            continue;
+            continue; // Skip this player if position is invalid
         }
+        // Ensure velocity is a number, default to 0 if not
+         if (player.velocity === undefined || player.velocity === null || isNaN(player.velocity)) {
+            // console.warn(`Player ${player.id} has invalid velocity (${player.velocity}), setting to 0 for collision check.`); // Optional warning
+            player.velocity = 0; 
+         }
 
         obstacles.forEach(obstacle => {
+            // Only check against designated solid types
             if (!solidObstacleTypes.has(obstacle.type)) {
-                return; 
+                return; // Skip non-solid obstacles
             }
             
-            // <<< ADDED: Obstacle Collision Debug Logging >>>
-            // console.log(`Checking Player ${player.id} (Pos: ${player.position.x.toFixed(2)}, ${player.position.z.toFixed(2)}) against Obstacle ${obstacle.type} (Pos: ${obstacle.x.toFixed(2)}, ${obstacle.z.toFixed(2)}, Size: ${obstacle.width}x${obstacle.length})`);
+            // --- Obstacle Validation ---
+            // Use default size if width/length are missing or invalid
+            const obsWidth = (typeof obstacle.width === 'number' && !isNaN(obstacle.width)) ? obstacle.width : EDITOR_TILE_SIZE;
+            const obsLength = (typeof obstacle.length === 'number' && !isNaN(obstacle.length)) ? obstacle.length : EDITOR_TILE_SIZE;
+            // Ensure obstacle position is valid
+             if (typeof obstacle.x !== 'number' || isNaN(obstacle.x) || typeof obstacle.z !== 'number' || isNaN(obstacle.z)) {
+                  console.warn(`Skipping collision check with obstacle type ${obstacle.type} due to invalid position:`, obstacle);
+                  return; // Skip this obstacle if position is invalid
+             }
 
-            const playerRadius = 1.0; 
-            const obstacleHalfWidth = (obstacle.width || EDITOR_TILE_SIZE) / 2; // Use EDITOR_TILE_SIZE as fallback width
-            const obstacleHalfLength = (obstacle.length || EDITOR_TILE_SIZE) / 2; // Use EDITOR_TILE_SIZE as fallback length
+            // --- AABB Collision Check ---
+            // Using player radius approximation for simplicity, treat player as square for AABB
+            const PLAYER_HALF_WIDTH = 1.0; // Adjust as needed based on visual size
+            const obstacleHalfWidth = obsWidth / 2.0;
+            const obstacleHalfLength = obsLength / 2.0;
             
-            const playerMinX = player.position.x - playerRadius;
-            const playerMaxX = player.position.x + playerRadius;
-            const playerMinZ = player.position.z - playerRadius;
-            const playerMaxZ = player.position.z + playerRadius;
+            // Calculate player bounds
+            const playerMinX = player.position.x - PLAYER_HALF_WIDTH;
+            const playerMaxX = player.position.x + PLAYER_HALF_WIDTH;
+            const playerMinZ = player.position.z - PLAYER_HALF_WIDTH;
+            const playerMaxZ = player.position.z + PLAYER_HALF_WIDTH;
             
+            // Calculate obstacle bounds
             const obstacleMinX = obstacle.x - obstacleHalfWidth;
             const obstacleMaxX = obstacle.x + obstacleHalfWidth;
             const obstacleMinZ = obstacle.z - obstacleHalfLength;
             const obstacleMaxZ = obstacle.z + obstacleHalfLength;
 
-            // Check for overlap
-            if (playerMaxX > obstacleMinX && playerMinX < obstacleMaxX && playerMaxZ > obstacleMinZ && playerMinZ < obstacleMaxZ) {
-                // <<< ADDED: Log actual collision detection >>>
-                console.log(`---> COLLISION DETECTED: Player ${player.id} vs Obstacle ${obstacle.type}`);
+            // Check for overlap using AABB
+            const collisionX = playerMaxX > obstacleMinX && playerMinX < obstacleMaxX;
+            const collisionZ = playerMaxZ > obstacleMinZ && playerMinZ < obstacleMaxZ;
+
+            if (collisionX && collisionZ) {
+                // Collision Detected!
+                console.log(`---> OBSTACLE COLLISION DETECTED: Player ${player.id} vs Obstacle ${obstacle.type} at (${obstacle.x.toFixed(2)}, ${obstacle.z.toFixed(2)})`);
                 
                 // --- Simple Bounce Response --- 
-                // Calculate overlap depth (rough estimate)
-                const overlapX = Math.min(playerMaxX - obstacleMinX, obstacleMaxX - playerMinX);
-                const overlapZ = Math.min(playerMaxZ - obstacleMinZ, obstacleMaxZ - playerMinZ);
-                
-                // Push player back based on smaller overlap
-                const pushBackForce = 0.5; // How strongly to push back
-                
-                if (overlapX < overlapZ) {
-                    // Push back along X-axis
-                    const directionX = Math.sign(player.position.x - obstacle.x);
-                    player.position.x += directionX * overlapX * pushBackForce;
+                // Calculate overlap (Minimum Translation Vector - MTV)
+                const overlapX1 = playerMaxX - obstacleMinX; // Positive value
+                const overlapX2 = obstacleMaxX - playerMinX; // Positive value
+                const overlapZ1 = playerMaxZ - obstacleMinZ; // Positive value
+                const overlapZ2 = obstacleMaxZ - playerMinZ; // Positive value
+
+                // Find the smallest positive overlap (MTV magnitude)
+                const mtvX = Math.min(overlapX1, overlapX2);
+                const mtvZ = Math.min(overlapZ1, overlapZ2);
+
+                // Determine push direction and apply correction along axis of least penetration
+                if (mtvX < mtvZ) {
+                    // Push horizontally
+                    const pushDirectionX = player.position.x < obstacle.x ? -1 : 1; // Push away from obstacle center X
+                    player.position.x += pushDirectionX * mtvX; 
+                    console.log(`  Pushing player ${player.id} X by ${pushDirectionX * mtvX}`);
+                     // Dampen velocity perpendicular to collision normal (optional, more complex)
+                     // Reflect velocity along collision normal (optional, more complex)
                 } else {
-                    // Push back along Z-axis
-                    const directionZ = Math.sign(player.position.z - obstacle.z);
-                    player.position.z += directionZ * overlapZ * pushBackForce;
+                    // Push vertically (on Z axis)
+                    const pushDirectionZ = player.position.z < obstacle.z ? -1 : 1; // Push away from obstacle center Z
+                    player.position.z += pushDirectionZ * mtvZ;
+                    console.log(`  Pushing player ${player.id} Z by ${pushDirectionZ * mtvZ}`);
+                    // Dampen/Reflect velocity (optional)
                 }
                 
-                // Reduce player velocity significantly
-                if (player.velocity !== undefined) {
-                    player.velocity *= 0.2; // Drastically reduce speed
-                }
+                // Reduce player velocity significantly on impact
+                const oldVelocity = player.velocity;
+                player.velocity *= 0.1; // Drastically reduce speed
+                // Prevent reversing if speed was positive
+                 if (oldVelocity > 0 && player.velocity < 0) {
+                     player.velocity = 0; 
+                 }
+                 // Ensure velocity doesn't become NaN after multiplication
+                 if (isNaN(player.velocity)) {
+                     console.warn(`Player ${player.id} velocity became NaN after obstacle collision! Resetting to 0.`);
+                     player.velocity = 0;
+                 }
+                 console.log(`  Player ${player.id} velocity changed from ${oldVelocity.toFixed(2)} to ${player.velocity.toFixed(2)}`);
 
                 // Optional: Trigger a visual/sound effect via client event
-                 io.to(player.id).emit('obstacleCollision', { type: obstacle.type }); // Send only to the player who hit it
-                 // We could also broadcast if needed: io.emit(...) 
-            } // <<< ADDED: Log if NO collision for debugging >>>
-            // else {
-            //    console.log(`   No collision.`);
-            // }
+                 io.to(player.id).emit('obstacleCollision', { 
+                     type: obstacle.type, 
+                     position: { x: obstacle.x, y: (obstacle.y || 0) + 0.5, z: obstacle.z } // Send obstacle position for effect
+                 }); 
+            } 
         });
     }
     
-    return collisions.length > 0 ? collisions : null; // Return player-player collisions for now
+    // Return player-player collisions array (if needed elsewhere, otherwise could be void)
+    return collisions.length > 0 ? collisions : null; 
 }
 
 // Socket.IO event handlers
@@ -584,22 +622,48 @@ io.on('connection', (socket) => {
                  // Apply valid updates
                  if (data.position) gameState.players[socket.id].position = data.position;
                  if (data.rotation) gameState.players[socket.id].rotation = data.rotation;
-                 if (data.velocity !== undefined) gameState.players[socket.id].velocity = data.velocity;
+                 // Update velocity ONLY if client sends a valid number
+                  if (data.velocity !== undefined && !isNaN(data.velocity)) {
+                       gameState.players[socket.id].velocity = data.velocity;
+                  } else if (data.velocity !== undefined) {
+                       console.warn(`Received invalid velocity from ${socket.id}: ${data.velocity}. Keeping old value: ${gameState.players[socket.id].velocity}`);
+                  }
 
-                 // Broadcast update to all other players only if position is valid
-                 if(data.position) {
-                      socket.broadcast.emit('updatePlayerPosition', socket.id, data.position, data.rotation);
+                 // --- Move Collision Check Here ---
+                 // Perform ALL collision checks after applying client updates but BEFORE broadcasting
+                 const player = gameState.players[socket.id]; // Get potentially updated player
+                 if (player && player.position && !isNaN(player.position.x) && !isNaN(player.position.z)) {
+                    // Run the consolidated collision check function
+                    checkCollisions(gameState); 
+                    // checkCollisions now handles both P2P and P-Obstacle, modifying gameState directly
+
+                    // Broadcast the state *after* collision resolution
+                     // Ensure we broadcast the final resolved position and rotation
+                     const finalPlayerState = gameState.players[socket.id]; // Re-get state after checkCollisions potentially modified it
+                     if (finalPlayerState && finalPlayerState.position && !isNaN(finalPlayerState.position.x) && !isNaN(finalPlayerState.position.z)) {
+                         socket.broadcast.emit('updatePlayerPosition', socket.id, finalPlayerState.position, finalPlayerState.rotation);
+                     } else {
+                          console.error(`Player ${socket.id} state invalid after collision checks. Not broadcasting position.`);
+                     }
+                 } else {
+                     console.warn(`Skipping collision checks for ${socket.id} due to invalid state before checks.`);
+                     // Still broadcast rotation if position was the only invalid part?
+                      if (player && player.rotation && data.rotation) { // Only broadcast rotation if it was part of the update
+                           // Broadcast only rotation if position is invalid but rotation updated?
+                           // This might cause visual glitches if position is very wrong.
+                           // Let's stick to only broadcasting if position is valid for now.
+                      }
                  }
             }
            
-            // Check for collisions (only if position was validly updated or already valid)
-             const player = gameState.players[socket.id];
-             if(player.position && !isNaN(player.position.x) && !isNaN(player.position.z)) {
-                  const collisions = checkCollisions(gameState);
-                  // Collision handling already happens inside checkCollisions
-             } else {
-                  console.warn(`Skipping collision check after update for ${socket.id} due to invalid position state.`);
-             }
+            // // Check for collisions (only if position was validly updated or already valid) // <<< MOVED Collision check inside the update block
+            //  const player = gameState.players[socket.id];
+            //  if(player.position && !isNaN(player.position.x) && !isNaN(player.position.z)) {
+            //       const collisions = checkCollisions(gameState);
+            //       // Collision handling already happens inside checkCollisions
+            //  } else {
+            //       console.warn(`Skipping collision check after update for ${socket.id} due to invalid position state.`);
+            //  }
         } else {
              console.warn(`Received playerUpdateState for unknown player: ${socket.id}`);
         }

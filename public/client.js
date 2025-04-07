@@ -2084,23 +2084,57 @@ const SPARK_LIFESPAN = 300; // ms
 
 // --- Collision Handling ---
 socket.on('collisionDetected', (data) => {
+    console.log('Received collision event:', data);
+    if (currentGameState !== 'racing' || !isSceneInitialized) return;
+
+    // Extract data
     const { playerA_id, playerB_id, collisionPoint, intensity, sparkRange } = data;
-    
-    // Create spark effect at collision point
-    createSparkEffect(
-        new THREE.Vector3(collisionPoint.x, collisionPoint.y, collisionPoint.z),
-        intensity,
-        sparkRange
-    );
-    
-    // Add screen shake based on collision intensity
-    if (playerA_id === localPlayerId || playerB_id === localPlayerId) {
-        const shakeAmount = intensity * 0.3; // Scale shake with collision intensity
-        shakeCamera(shakeAmount);
+
+    // Find the midpoint for the effect
+    const effectPosition = new THREE.Vector3(collisionPoint.x, collisionPoint.y, collisionPoint.z); // Already has y=1.0 from server
+
+    // Trigger spark effect at the collision point
+     // Adjust Y position *here* as well, just in case server y isn't enough, or for visual preference
+     // effectPosition.y += 0.3; // Raise sparks slightly more? Test this. Let's rely on createSparkEffect adjustments first.
+    createSparkEffect(effectPosition, intensity, sparkRange);
+
+    // Camera shake effect (optional)
+    // Shake more intensely for bigger collisions
+    const shakeIntensity = intensity * 0.1; // Scale intensity to shake amount
+    shakeCamera(shakeIntensity);
+
+    // Play collision sound (optional)
+    // playSound('collision_sound', intensity);
+
+    // Debug log
+    console.log(`Spark effect triggered at Y=${effectPosition.y} due to player-player collision between ${playerA_id} and ${playerB_id}`);
+});
+
+// --- ADDED: Handler for Obstacle Collision Event --- 
+socket.on('obstacleCollision', (data) => {
+    console.log('Received OBSTACLE collision event:', data);
+    if (currentGameState !== 'racing' || !isSceneInitialized) return;
+
+    const { type, position } = data; // Obstacle type and position
+
+    // Trigger spark effect at the obstacle's position
+    if (position) {
+        const effectPosition = new THREE.Vector3(position.x, position.y, position.z); // Use position from server (already includes y offset)
+        const intensity = 0.5; // Fixed intensity for obstacle hits?
+        const range = 1.0; // Fixed range
+        createSparkEffect(effectPosition, intensity, range);
+        console.log(`Spark effect triggered at Y=${effectPosition.y} due to hitting obstacle ${type}`);
+
+         // Camera shake effect (use a fixed medium shake?)
+         const shakeIntensity = 0.05;
+         shakeCamera(shakeIntensity);
+
+         // Play obstacle collision sound (optional)
+         // playSound('obstacle_hit_sound', intensity); 
+
+    } else {
+         console.warn("Received obstacleCollision event without position data.");
     }
-    
-    // Play collision sound if available
-    // TODO: Add collision sound effect
 });
 
 function createSparkEffect(position, intensity, range) {
