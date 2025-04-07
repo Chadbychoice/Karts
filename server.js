@@ -47,6 +47,18 @@ const editorToClientTypeMap = {
     // Add mappings for any other editor types
 };
 
+// <<< ADDED: Server-side knowledge of which obstacles are solid >>>
+const solidObstacleTypes = new Set([
+    'blueblock',
+    'greenblock',
+    'darkgreenblock',
+    'redblock',
+    'yellowblock',
+    'tiresred',
+    'tireswhite'
+    // Note: startgate is a decoration, not an obstacle
+]);
+
 // --- Translation Function ---
 function translateEditorDataToCourseData(editorData) {
     if (!editorData || !Array.isArray(editorData.tiles)) {
@@ -298,8 +310,11 @@ const gameState = {
 // Add collision detection
 function checkCollisions(gameState) {
     const players = Object.values(gameState.players);
+    const currentCourse = courses[gameState.currentCourse];
+    const obstacles = currentCourse?.obstacles || []; // Get obstacles for the current course
     const collisions = [];
     
+    // --- Player vs Player Collisions --- 
     for (let i = 0; i < players.length; i++) {
         for (let j = i + 1; j < players.length; j++) {
             const playerA = players[i];
@@ -403,7 +418,73 @@ function checkCollisions(gameState) {
         }
     }
     
-    return collisions.length > 0 ? collisions : null;
+    // --- Player vs Obstacle Collisions --- 
+    for (let i = 0; i < players.length; i++) {
+        const player = players[i];
+        
+        // Basic validation for player position
+        if (!player || !player.position || typeof player.position.x !== 'number' || typeof player.position.z !== 'number' || isNaN(player.position.x) || isNaN(player.position.z)) {
+            console.warn(`Skipping obstacle collision check - Invalid position for player (${player?.id}):`, player?.position);
+            continue;
+        }
+
+        obstacles.forEach(obstacle => {
+            // Only check against SOLID obstacles
+            if (!solidObstacleTypes.has(obstacle.type)) {
+                return; // Skip non-solid obstacles like mud
+            }
+            
+            // Simple AABB (Axis-Aligned Bounding Box) collision check for now
+            // Assuming player is roughly 1x1 world units for this check
+            const playerRadius = 1.0; // Approximate player size
+            const obstacleHalfWidth = (obstacle.width || 1) / 2;
+            const obstacleHalfLength = (obstacle.length || 1) / 2;
+            
+            const playerMinX = player.position.x - playerRadius;
+            const playerMaxX = player.position.x + playerRadius;
+            const playerMinZ = player.position.z - playerRadius;
+            const playerMaxZ = player.position.z + playerRadius;
+            
+            const obstacleMinX = obstacle.x - obstacleHalfWidth;
+            const obstacleMaxX = obstacle.x + obstacleHalfWidth;
+            const obstacleMinZ = obstacle.z - obstacleHalfLength;
+            const obstacleMaxZ = obstacle.z + obstacleHalfLength;
+
+            // Check for overlap
+            if (playerMaxX > obstacleMinX && playerMinX < obstacleMaxX && playerMaxZ > obstacleMinZ && playerMinZ < obstacleMaxZ) {
+                console.log(`Player ${player.id} collided with obstacle ${obstacle.type} at (${obstacle.x}, ${obstacle.z})`);
+                
+                // --- Simple Bounce Response --- 
+                // Calculate overlap depth (rough estimate)
+                const overlapX = Math.min(playerMaxX - obstacleMinX, obstacleMaxX - playerMinX);
+                const overlapZ = Math.min(playerMaxZ - obstacleMinZ, obstacleMaxZ - playerMinZ);
+                
+                // Push player back based on smaller overlap
+                const pushBackForce = 0.5; // How strongly to push back
+                
+                if (overlapX < overlapZ) {
+                    // Push back along X-axis
+                    const directionX = Math.sign(player.position.x - obstacle.x);
+                    player.position.x += directionX * overlapX * pushBackForce;
+                } else {
+                    // Push back along Z-axis
+                    const directionZ = Math.sign(player.position.z - obstacle.z);
+                    player.position.z += directionZ * overlapZ * pushBackForce;
+                }
+                
+                // Reduce player velocity significantly
+                if (player.velocity !== undefined) {
+                    player.velocity *= 0.2; // Drastically reduce speed
+                }
+
+                // Optional: Trigger a visual/sound effect via client event
+                 io.to(player.id).emit('obstacleCollision', { type: obstacle.type }); // Send only to the player who hit it
+                 // We could also broadcast if needed: io.emit(...) 
+            }
+        });
+    }
+    
+    return collisions.length > 0 ? collisions : null; // Return player-player collisions for now
 }
 
 // Socket.IO event handlers
@@ -611,6 +692,14 @@ io.on('connection', (socket) => {
             console.error(`Error saving course ${name} to ${filePath}:`, error);
             socket.emit('editorSaveConfirm', { success: false, message: 'Server error saving file.' });
         }
+    });
+
+    // --- Handle Obstacle Collision Event on Client --- 
+    socket.on('obstacleCollision', ({ type }) => {
+        console.log(`Local player hit obstacle: ${type}`);
+        // TODO: Play a collision sound based on type?
+        // TODO: Add a small camera shake?
+        shakeCamera(0.15); // Add a smaller shake for obstacles
     });
 });
 
