@@ -691,7 +691,7 @@ io.on('connection', (socket) => {
                         const slowdownFactor = 0.8; // Adjust this value as needed
                         player.velocity *= slowdownFactor;
                         // Optional: Log the slowdown
-                        // console.log(`Player ${socket.id} slowed on ${groundTile.type}. New velocity: ${player.velocity.toFixed(2)}`);
+                        console.log(`Player ${socket.id} slowed on ${groundTile.type}. New velocity: ${player.velocity.toFixed(2)}`);
                     }
                 }
             }
