@@ -643,83 +643,101 @@ io.on('connection', (socket) => {
 
     // Handle player state updates
     socket.on('playerUpdateState', (data) => {
-        const player = gameState.players[socket.id]; // Get player reference
+        const player = gameState.players[socket.id]; 
         if (player) {
-            let positionBeforeCheck = null;
-            let velocityBeforeCheck = null;
+            // Store incoming data safely
+            const clientUpdateData = { 
+                position: data.position ? { ...data.position } : null,
+                rotation: data.rotation ? { ...data.rotation } : null,
+                velocity: (data.velocity !== undefined && !isNaN(data.velocity)) ? data.velocity : player.velocity // Use current if invalid
+            };
 
-            // 1. Apply updates from client (and validate)
-            if (data.position && (isNaN(data.position.x) || isNaN(data.position.z))) {
-                 console.error(`!!! Received NaN position from ${socket.id}:`, data.position);
-                 // Don't apply NaN position
-            } else if (data.position) {
-                 // Store state before applying client update AND before collision check
-                 positionBeforeCheck = { ...player.position }; 
-                 velocityBeforeCheck = player.velocity;
-                 player.position = data.position;
+            // Store state BEFORE applying client update AND before collision check
+            const positionBeforeUpdate = { ...player.position }; 
+            const velocityBeforeUpdate = player.velocity;
+            
+            // 1. Tentatively apply updates from client (validated)
+            if (clientUpdateData.position) {
+                player.position = clientUpdateData.position;
             }
-            if (data.rotation) {
-                 player.rotation = data.rotation;
+            if (clientUpdateData.rotation) {
+                 player.rotation = clientUpdateData.rotation;
             }
-            if (data.velocity !== undefined && !isNaN(data.velocity)) {
-                 if(velocityBeforeCheck === null) velocityBeforeCheck = player.velocity; // Store if not stored yet
-                 player.velocity = data.velocity;
-            } else if (data.velocity !== undefined) {
-                 console.warn(`Received invalid velocity from ${socket.id}: ${data.velocity}. Keeping old value: ${player.velocity}`);
-            }
+            // Apply validated velocity from clientUpdateData
+            player.velocity = clientUpdateData.velocity;
+            
+            // Store state AFTER applying client update but BEFORE collision check
+            const stateBeforeCollisionCheck = {
+                position: { ...player.position },
+                rotation: { ...player.rotation },
+                velocity: player.velocity
+            };
 
-            // 2. Perform Collision Checks & Resolution (modifies gameState directly)
+            // 2. Perform Collision Checks & Resolution (potentially modifies player state)
             let collisionModifiedState = false;
-            if (player.position && !isNaN(player.position.x) && !isNaN(player.position.z)) {
-                 // Store state just before collision function, if not already stored
-                 if(positionBeforeCheck === null) positionBeforeCheck = { ...player.position };
-                 if(velocityBeforeCheck === null) velocityBeforeCheck = player.velocity;
-                 
-                 checkCollisions(gameState); // This function modifies player positions/velocities in gameState
+            let posChangeDistanceSq = 0;
+            let significantChange = false;
 
-                 // 3. Check if state was ACTUALLY modified by collisions
+            if (player.position && !isNaN(player.position.x) && !isNaN(player.position.z)) {
+                 checkCollisions(gameState); 
+
+                 // 3. Check if state was ACTUALLY modified significantly by collisions
                  const finalPlayerState = gameState.players[socket.id]; // Re-get state after checkCollisions
                  if (finalPlayerState) {
                       // Compare final state with state *before* collision check
-                      const posChanged = finalPlayerState.position.x !== positionBeforeCheck.x || 
-                                         finalPlayerState.position.z !== positionBeforeCheck.z;
-                      // Calculate distance squared of the change
-                      const dx = finalPlayerState.position.x - positionBeforeCheck.x;
-                      const dz = finalPlayerState.position.z - positionBeforeCheck.z;
-                      const posChangeDistanceSq = dx * dx + dz * dz;
-
-                      const velChanged = finalPlayerState.velocity !== velocityBeforeCheck;
-                      // INCREASED Threshold: Only correct if position changed by > 0.1 units squared
+                      const posChanged = finalPlayerState.position.x !== stateBeforeCollisionCheck.position.x || 
+                                         finalPlayerState.position.z !== stateBeforeCollisionCheck.position.z;
+                      const velChanged = finalPlayerState.velocity !== stateBeforeCollisionCheck.velocity;
+                      
+                      if (posChanged) {
+                           const dx = finalPlayerState.position.x - stateBeforeCollisionCheck.position.x;
+                           const dz = finalPlayerState.position.z - stateBeforeCollisionCheck.position.z;
+                           posChangeDistanceSq = dx * dx + dz * dz;
+                      }
+                      
                       const CORRECTION_THRESHOLD_SQ = 0.1 * 0.1; 
+                      significantChange = posChangeDistanceSq > CORRECTION_THRESHOLD_SQ;
                       
                       if (posChanged || velChanged) {
                            collisionModifiedState = true;
-                           console.log(`Collision system modified state for ${socket.id}. Pos changed: ${posChanged} (DistSq: ${posChangeDistanceSq.toFixed(4)}), Vel changed: ${velChanged}`);
+                           console.log(`Collision system modified state for ${socket.id}. Pos changed: ${posChanged} (DistSq: ${posChangeDistanceSq.toFixed(4)}), Vel changed: ${velChanged}. Significant: ${significantChange}`);
                       }
 
-                      // 4. Broadcast state to OTHERS (Always broadcast latest state)
-                      if (!isNaN(finalPlayerState.position.x) && !isNaN(finalPlayerState.position.z)) {
-                          socket.broadcast.emit('updatePlayerPosition', socket.id, finalPlayerState.position, finalPlayerState.rotation);
+                      // 4. <<< NEW: Decide whether to keep collision modifications or revert >>>
+                      if (!significantChange) {
+                           // Jitter reduction: If change wasn't significant, revert to the state we had *after* applying client data but *before* collisions
+                           console.log(`   (Change below threshold, reverting ${socket.id} to pre-collision state for this tick)`);
+                           player.position = stateBeforeCollisionCheck.position;
+                           player.rotation = stateBeforeCollisionCheck.rotation;
+                           player.velocity = stateBeforeCollisionCheck.velocity;
+                           collisionModifiedState = false; // Treat as unmodified if reverted
+                      } 
+                      // ELSE: Keep the modified state if change was significant
+
+                      // 5. Broadcast state to OTHERS (using the final decided state)
+                      const stateToBroadcast = gameState.players[socket.id]; // Get the potentially reverted state
+                      if (stateToBroadcast && !isNaN(stateToBroadcast.position.x) && !isNaN(stateToBroadcast.position.z)) {
+                          socket.broadcast.emit('updatePlayerPosition', socket.id, stateToBroadcast.position, stateToBroadcast.rotation);
                       } else {
-                           console.error(`Player ${socket.id} state invalid after collision checks. Not broadcasting position.`);
+                           console.error(`Player ${socket.id} state invalid before broadcast. Not broadcasting position.`);
                       }
 
-                      // 5. Send correction back to the originating client ONLY IF position changed significantly
-                      if (collisionModifiedState && posChangeDistanceSq > CORRECTION_THRESHOLD_SQ && !isNaN(finalPlayerState.position.x) && !isNaN(finalPlayerState.position.z)) {
+                      // 6. Send correction back to the originating client ONLY IF state was significantly modified AND kept
+                      if (collisionModifiedState && significantChange && stateToBroadcast && !isNaN(stateToBroadcast.position.x) && !isNaN(stateToBroadcast.position.z)) {
                            console.log(`---> Sending position correction back to client ${socket.id} (Significant change: ${Math.sqrt(posChangeDistanceSq).toFixed(3)})`);
-                           socket.emit('updatePlayerPosition', socket.id, finalPlayerState.position, finalPlayerState.rotation); 
-                      } else if (collisionModifiedState) {
-                           console.log(`   (Skipping correction for ${socket.id}: Position change ${Math.sqrt(posChangeDistanceSq).toFixed(3)} below threshold)`);
+                           socket.emit('updatePlayerPosition', socket.id, stateToBroadcast.position, stateToBroadcast.rotation); 
+                      } else if (collisionModifiedState && !significantChange) {
+                           // This case should now not happen due to revert logic above
+                           console.log(`   (Skipping correction for ${socket.id}: Reverted change below threshold)`);
                       }
                  } else {
                       console.error(`Player ${socket.id} disappeared after collision check!`);
                  }
             } else {
                  console.warn(`Skipping collision checks for ${socket.id} due to invalid state before checks.`);
-                 // If state was invalid BEFORE checks, maybe still broadcast valid rotation if it came in?
-                  if (player.rotation && data.rotation && player.position && !isNaN(player.position.x) && !isNaN(player.position.z)) {
-                       // If only rotation was updated, broadcast that to others
-                       socket.broadcast.emit('updatePlayerPosition', socket.id, player.position, player.rotation);
+                 // If state was invalid BEFORE checks, broadcast original client data if valid?
+                  if (clientUpdateData.position && clientUpdateData.rotation && !isNaN(clientUpdateData.position.x) && !isNaN(clientUpdateData.position.z)) {
+                       socket.broadcast.emit('updatePlayerPosition', socket.id, clientUpdateData.position, clientUpdateData.rotation);
                   }
             }
         } else {
