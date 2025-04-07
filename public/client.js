@@ -330,7 +330,7 @@ let characterIds; // Declare globally
 
 // --- Character Selection Logic ---
 
-// <<< ADDED Function Definition >>>
+// <<< Restoring Function Definition >>>
 function showCharacterSelection() {
     characterSelectionOverlay.style.display = 'flex';
     waitingScreenOverlay.style.display = 'none';
@@ -1777,8 +1777,8 @@ function initializeRaceScene(initialPlayers, options) {
     }
 
     // Initialize effects
-    initializeSparkSystem();
-    initializeSpeedLines(); // <<< ADDED: Initialize speed lines
+    initializeSharedSparkSystem(); // RENAMED FUNCTION CALL
+    initializeSpeedLines();
 
     // Start animation loop if not already running
     if (!animationFrameId) {
