@@ -677,6 +677,26 @@ io.on('connection', (socket) => {
             // Apply validated velocity from clientUpdateData
             player.velocity = clientUpdateData.velocity;
             
+            // <<< ADDED: Ground Type Slowdown >>>
+            const currentCourseData = courses[gameState.currentCourse];
+            if (currentCourseData && currentCourseData.rawEditorTiles && player.position) {
+                const gridX = Math.round(player.position.x / EDITOR_TILE_SIZE + EDITOR_GRID_WIDTH / 2);
+                const gridY = Math.round(player.position.z / EDITOR_TILE_SIZE + EDITOR_GRID_HEIGHT / 2); // Editor uses Y for Z-axis
+
+                if (gridX >= 0 && gridX < EDITOR_GRID_WIDTH && gridY >= 0 && gridY < EDITOR_GRID_HEIGHT) {
+                    const tileIndex = gridY * EDITOR_GRID_WIDTH + gridX;
+                    const groundTile = currentCourseData.rawEditorTiles[tileIndex];
+
+                    if (groundTile && (groundTile.type === 'grass' || groundTile.type === 'mud')) {
+                        const slowdownFactor = 0.8; // Adjust this value as needed
+                        player.velocity *= slowdownFactor;
+                        // Optional: Log the slowdown
+                        // console.log(`Player ${socket.id} slowed on ${groundTile.type}. New velocity: ${player.velocity.toFixed(2)}`);
+                    }
+                }
+            }
+            // <<< END ADDED >>>
+
             // Store state AFTER applying client update but BEFORE collision check
             const stateBeforeCollisionCheck = {
                 position: { ...player.position },
