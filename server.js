@@ -485,21 +485,19 @@ function checkCollisions(gameState) {
              const obstacleHalfWidth = OBSTACLE_HALF_SIZE;
              const obstacleHalfLength = OBSTACLE_HALF_SIZE;
             
-            // --- Broad-Phase Check (Simple Distance) ---
-            const dx = player.position.x - obstacle.x;
-            const dz = player.position.z - obstacle.z;
-            const distanceSq = dx * dx + dz * dz;
-            const BROAD_PHASE_DISTANCE_SQ = 25; // Check AABB only if player is within 5 units (sqrt(25))
-
-            if (distanceSq > BROAD_PHASE_DISTANCE_SQ) {
-                 // console.log(`  Skipping obstacle ${obstacle.type} (Broad phase: distanceSq=${distanceSq.toFixed(2)} > ${BROAD_PHASE_DISTANCE_SQ})`); // Optional verbose log
-                 return; // Skip AABB check if too far
-            }
+            // --- REMOVED Broad-Phase Check --- 
+            // const dx = player.position.x - obstacle.x;
+            // const dz = player.position.z - obstacle.z;
+            // const distanceSq = dx * dx + dz * dz;
+            // const BROAD_PHASE_DISTANCE_SQ = 25;
+            // if (distanceSq > BROAD_PHASE_DISTANCE_SQ) {
+            //      return; 
+            // }
             
-             // <<< ADDED DIAGNOSTIC LOG (Now after broad-phase) >>>
-             console.log(`  [Check AABB] Player ${player.id} (Pos: ${player.position.x.toFixed(2)},${player.position.z.toFixed(2)}) vs Obstacle ${obstacle.type} (Pos: ${obstacle.x.toFixed(2)},${obstacle.z.toFixed(2)}) - DistSq: ${distanceSq.toFixed(2)}`);
+             // <<< Diagnostic Log >>>
+             console.log(`  [Check AABB] Player ${player.id} (Pos: ${player.position.x.toFixed(2)},${player.position.z.toFixed(2)}) vs Obstacle ${obstacle.type} (Pos: ${obstacle.x.toFixed(2)},${obstacle.z.toFixed(2)})`);
 
-            // --- AABB Check --- (Player hitbox is already reduced)
+            // --- AABB Check --- 
             const PLAYER_HALF_WIDTH = 0.4; 
             
             // Calculate player bounds

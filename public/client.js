@@ -590,7 +590,7 @@ socket.on('updatePlayerPosition', (playerId, position, rotation) => {
      // console.log(`Received updatePlayerPosition for ${playerId}`);
     if (!players[playerId]) return; // Ignore if player doesn't exist locally
 
-     // --- Apply Cooldown for Local Player --- 
+     // --- RESTORED Cooldown logic --- 
      if (playerId === localPlayerId) {
          console.log("<-- Received server correction. Applying cooldown.");
          canSendUpdate = false;
@@ -1205,11 +1205,14 @@ function updateCameraPosition() {
 
 let lastUpdateTime = 0;
 const updateInterval = 100; // Send updates every 100ms (10 times per second)
+// RESTORED Cooldown Logic
+let canSendUpdate = true; // Flag to control sending updates
+const CLIENT_UPDATE_COOLDOWN = 150; // ms to wait after receiving server correction
 
 function sendLocalPlayerUpdate() {
     const now = Date.now();
-    // Check player data existence before sending
-    if (now - lastUpdateTime > updateInterval && localPlayerId && players[localPlayerId] && players[localPlayerId].position && players[localPlayerId].rotation) {
+    // Check player data existence AND cooldown flag before sending
+    if (canSendUpdate && now - lastUpdateTime > updateInterval && localPlayerId && players[localPlayerId] && players[localPlayerId].position && players[localPlayerId].rotation) {
         const playerState = players[localPlayerId];
         // Send only necessary data
         const updateData = {
