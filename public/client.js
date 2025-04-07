@@ -587,35 +587,35 @@ socket.on('playerLeft', (playerId) => {
 });
 
 socket.on('updatePlayerPosition', (playerId, position, rotation) => {
-     console.log(`Received updatePlayerPosition for ${playerId}`);
+     // console.log(`Received updatePlayerPosition for ${playerId}`); // Reduce logging noise
     if (!players[playerId]) return; // Ignore if player doesn't exist locally
 
-     // Store the received state (ground level)
+     // Store the received state (ground level X/Z)
      if (position) {
-        players[playerId].position = { ...position, y: 0 };
+        // CRITICAL: Only update X and Z from server. Keep local Y (visual height) separate.
+        players[playerId].position.x = position.x;
+        players[playerId].position.z = position.z;
+        // DO NOT update players[playerId].position.y here.
      }
      if (rotation) {
         players[playerId].rotation = rotation;
      }
     
-    // <<< IMPORTANT: Apply update directly to visual object >>>
+    // Apply update directly to visual object, ensuring correct Y position
     if (playerObjects[playerId]) {
          const sprite = playerObjects[playerId];
          if (position) {
-             // Apply visual position immediately, including height offset
+             // Apply visual position immediately, ALWAYS using calculated visual height
+             const visualY = playerSpriteScale / 2; // Calculate the correct visual height
              sprite.position.set(
-                 position.x,
-                 playerSpriteScale / 2, // Use correct visual height
-                 position.z
+                 position.x, // Use X from server/update
+                 visualY,    // Use calculated visual Y, ignore server Y
+                 position.z  // Use Z from server/update
              );
-             console.log(`---> Applied position correction to ${playerId}: X=${position.x.toFixed(2)}, Z=${position.z.toFixed(2)}`);
+             // console.log(`---> Applied position correction to ${playerId}: X=${position.x.toFixed(2)}, Z=${position.z.toFixed(2)}, VisualY=${visualY.toFixed(2)}`); // Log Y application
          }
-         // Rotation is handled by sprite angle updates, no direct rotation needed here.
-    } else {
-         // If player object doesn't exist yet but we got an update, 
-         // it might be created shortly after in updatePlayerObjects().
-         // The position data stored in players[playerId] will be used then.
-    }
+         // Rotation is handled by sprite angle updates
+    } 
 });
 
 // Listener for effect state updates from the server

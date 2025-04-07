@@ -484,7 +484,7 @@ function checkCollisions(gameState) {
              }
 
             // --- AABB Check (ensure no NaN inputs) ---
-            const PLAYER_HALF_WIDTH = 1.0; 
+            const PLAYER_HALF_WIDTH = 0.7; // Previous: 1.0 
             const obstacleHalfWidth = obsWidth / 2.0;
             const obstacleHalfLength = obsLength / 2.0;
             
