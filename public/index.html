@@ -75,6 +75,63 @@
         .character-5 { background-color: #ff00ff; }
         .character-6 { background-color: #00ffff; }
         .character-7 { background-color: #ffffff; }
+        
+        /* Mobile Controls */
+        #mobile-controls {
+            display: none; /* Hidden by default, shown via JS on mobile */
+            position: absolute;
+            bottom: 20px;
+            left: 0;
+            right: 0;
+            padding: 10px;
+            z-index: 100;
+        }
+        
+        .control-group-left {
+            position: absolute;
+            left: 20px;
+            bottom: 20px;
+            display: flex;
+            gap: 20px;
+        }
+        
+        .control-group-right {
+            position: absolute;
+            right: 20px;
+            bottom: 20px;
+            display: flex;
+            gap: 20px;
+        }
+        
+        .mobile-btn {
+            width: 70px;
+            height: 70px;
+            background-color: rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            user-select: none;
+            -webkit-user-select: none;
+            border: 2px solid rgba(255, 255, 255, 0.5);
+        }
+        
+        .mobile-btn:active {
+            background-color: rgba(255, 255, 255, 0.5);
+        }
+        
+        #drive-btn {
+            background-color: rgba(0, 255, 0, 0.3);
+            width: 80px;
+            height: 80px;
+        }
+        
+        #drift-btn {
+            background-color: rgba(255, 255, 0, 0.3);
+        }
     </style>
 </head>
 <body>
@@ -90,6 +147,18 @@
         <div id="waiting-screen">
             <h2>Waiting for other players...</h2>
             <p>Players ready: <span id="ready-count">0</span></p>
+        </div>
+        
+        <!-- Mobile Controls -->
+        <div id="mobile-controls">
+            <div class="control-group-left">
+                <div id="left-btn" class="mobile-btn">←</div>
+                <div id="right-btn" class="mobile-btn">→</div>
+            </div>
+            <div class="control-group-right">
+                <div id="drift-btn" class="mobile-btn">DRIFT</div>
+                <div id="drive-btn" class="mobile-btn">GO</div>
+            </div>
         </div>
     </div>
     <div id="speedometer">Speed: 0</div>

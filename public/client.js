@@ -10,6 +10,12 @@ import { CopyShader } from './jsm/shaders/CopyShader.js';
 import { LuminosityHighPassShader } from './jsm/shaders/LuminosityHighPassShader.js';
 import { OutputShader } from './jsm/shaders/OutputShader.js';
 
+// --- Mobile Device Detection ---
+const isMobileDevice = () => {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+           (window.innerWidth <= 800 && window.innerHeight <= 900);
+};
+
 // --- Basic Setup ---
 // Get the WebSocket URL based on environment
 const WEBSOCKET_URL = window.location.hostname === 'localhost' 
@@ -377,6 +383,10 @@ function showCharacterSelection() {
     characterSelectionOverlay.style.display = 'flex';
     waitingScreenOverlay.style.display = 'none';
     
+    // Hide mobile controls during character selection
+    const mobileControls = document.getElementById('mobile-controls');
+    mobileControls.style.display = 'none';
+    
     // Set up the character selection UI
     setupCharacterSelection();
     
@@ -385,6 +395,101 @@ function showCharacterSelection() {
     document.addEventListener('keydown', handleCharacterSelectionInput);
     console.log("Character selection keydown handler attached");
 }
+
+// Initialize mobile controls if on a mobile device
+function initializeMobileControls() {
+    const mobileControls = document.getElementById('mobile-controls');
+    
+    if (isMobileDevice()) {
+        console.log("Mobile device detected, initializing touch controls");
+        mobileControls.style.display = 'block';
+        
+        // Setup touch event listeners
+        const leftBtn = document.getElementById('left-btn');
+        const rightBtn = document.getElementById('right-btn');
+        const driftBtn = document.getElementById('drift-btn');
+        const driveBtn = document.getElementById('drive-btn');
+        
+        // Left button
+        leftBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // Prevent scrolling
+            keyStates['arrowleft'] = true;
+            leftTurnStartTime = Date.now();
+        });
+        
+        leftBtn.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            keyStates['arrowleft'] = false;
+            leftTurnStartTime = 0;
+        });
+        
+        // Right button
+        rightBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            keyStates['arrowright'] = true;
+            rightTurnStartTime = Date.now();
+        });
+        
+        rightBtn.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            keyStates['arrowright'] = false;
+            rightTurnStartTime = 0;
+        });
+        
+        // Drift button
+        driftBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            keyStates['shift'] = true;
+            const now = Date.now();
+            // Check if turning when hop starts
+            const turningLeft = keyStates['arrowleft'];
+            const turningRight = keyStates['arrowright'];
+
+            if (turningLeft || turningRight) {
+                // Initiate Hop/Drift only if turning
+                localPlayerDriftState.state = 'hopping';
+                localPlayerDriftState.startTime = now;
+                localPlayerDriftState.direction = turningLeft ? -1 : 1;
+                localPlayerDriftState.miniTurboLevel = 0; // Reset turbo level
+                // Emit drift start state
+                socket.emit('playerDriftStateChange', true, localPlayerDriftState.direction);
+            }
+        });
+        
+        driftBtn.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            keyStates['shift'] = false;
+            if (localPlayerDriftState.state === 'driftingLeft' || localPlayerDriftState.state === 'driftingRight') {
+                releaseDrift(); // Handle boost and state reset
+            } else if (localPlayerDriftState.state === 'hopping') {
+                // If shift released during hop (no drift established), just cancel
+                localPlayerDriftState.state = 'none';
+                localPlayerDriftState.currentSidewaysAdjustment = 0;
+                console.log("Hop Cancelled");
+            }
+        });
+        
+        // Drive button
+        driveBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            keyStates['w'] = true;
+            keyStates['arrowup'] = true;
+        });
+        
+        driveBtn.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            keyStates['w'] = false;
+            keyStates['arrowup'] = false;
+        });
+    } else {
+        mobileControls.style.display = 'none';
+    }
+}
+
+// Call this function when the game initializes
+document.addEventListener('DOMContentLoaded', () => {
+    initializeMobileControls();
+});
 
 function setupCharacterSelection() {
     console.log("Running setupCharacterSelection...");
@@ -1947,6 +2052,12 @@ function initializeRaceScene(initialPlayers, options) {
     
     // Initialize smoke system
     smokeSystem = new SmokeSystem(scene);
+
+    // Show mobile controls if on a mobile device
+    if (isMobileDevice()) {
+        const mobileControls = document.getElementById('mobile-controls');
+        mobileControls.style.display = 'block';
+    }
 
     // Start animation loop if not already running
     if (!animationFrameId) {
