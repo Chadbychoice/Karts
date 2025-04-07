@@ -683,23 +683,9 @@ socket.on('updatePlayerPosition', (playerId, position, rotation, velocity) => { 
 
 // Listener for effect state updates from the server
 socket.on('updatePlayerEffectsState', (playerId, effectsState) => {
-    if (players[playerId] && playerId !== localPlayerId) {
-        // Update the remote player's state in our local `players` object
-        if (effectsState.isDrifting !== undefined) {
-            players[playerId].isDrifting = effectsState.isDrifting;
-        }
-        if (effectsState.driftDirection !== undefined) {
-            players[playerId].driftDirection = effectsState.driftDirection;
-        }
-        if (effectsState.isBoosting !== undefined) {
-            players[playerId].isBoosting = effectsState.isBoosting;
-            // We might need to manually manage a boost end time for remote players
-            // if the server only sends the start event reliably.
-            // For now, just use the boolean flag.
-        }
-        if (effectsState.boostLevel !== undefined) {
-            players[playerId].boostLevel = effectsState.boostLevel;
-        }
+    const playerData = players[playerId];
+    if (playerData) {
+        Object.assign(playerData, effectsState);
     }
 });
 
@@ -2632,5 +2618,39 @@ function lerp(start, end, t) {
 // <<< ADDED: State for gradual off-road transition >>>
 let previousGroundType = 'road'; // Assume starting on road
 let offRoadEntryTimestamp = 0;
+
+// Handle joining an in-progress race
+socket.on('playerJoinedRace', (data) => {
+    // Show a notification that player joined an in-progress race
+    console.log("Joined race in progress:", data.message);
+    
+    // Optionally show a UI notification to the player
+    const notification = document.createElement('div');
+    notification.className = 'race-notification';
+    notification.textContent = data.message;
+    notification.style.position = 'absolute';
+    notification.style.top = '20%';
+    notification.style.left = '50%';
+    notification.style.transform = 'translate(-50%, -50%)';
+    notification.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+    notification.style.color = 'white';
+    notification.style.padding = '10px 20px';
+    notification.style.borderRadius = '5px';
+    notification.style.zIndex = '1000';
+    notification.style.fontWeight = 'bold';
+    
+    document.body.appendChild(notification);
+    
+    // Remove notification after a few seconds
+    setTimeout(() => {
+        notification.style.opacity = '0';
+        notification.style.transition = 'opacity 1s';
+        setTimeout(() => {
+            notification.remove();
+        }, 1000);
+    }, 5000);
+});
+
+// Listen for player driving effects (e.g., smoke)
 
 

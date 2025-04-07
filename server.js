@@ -613,42 +613,46 @@ io.on('connection', (socket) => {
             gameState.players[socket.id].characterId = characterId;
             gameState.readyPlayers.add(socket.id);
             
-            // Put player directly into racing state (using the correct start pos for THIS player)
-             const startPos = currentValidCourse.startPositions[
-                 (Object.keys(gameState.players).length -1) % currentValidCourse.startPositions.length
-             ]; // Get pos based on current player index
+            // Always place the player at a start position
+            const startPos = currentValidCourse.startPositions[
+                (Object.keys(gameState.players).length - 1) % currentValidCourse.startPositions.length
+            ];
             gameState.players[socket.id].position = { ...startPos };
             gameState.players[socket.id].rotation = { ...currentValidCourse.startRotation };
             gameState.players[socket.id].isSpectator = false;
+            gameState.players[socket.id].velocity = 0; // Start with zero velocity
+            gameState.players[socket.id].lap = 1; // Set starting lap
 
-            // Update game state to racing if it wasn't already
-            let stateChanged = false;
+            console.log(`Player ${socket.id} placed at starting position, ready to race`);
+
+            // Always transition to racing state if not already
             if (gameState.state !== 'racing') {
                 gameState.state = 'racing';
-                stateChanged = true;
                 console.log('Game state changed to racing!');
+            } else {
+                console.log('Race already in progress, joining player to ongoing race');
             }
 
             // Ensure the course exists before using it
-             const courseToSend = courses[gameState.currentCourse];
-             if (!courseToSend) {
-                  console.error(`Error: Course '${gameState.currentCourse}' not found when trying to emit racing state.`);
-                  // Optionally switch back to test or handle error
-                  return; // Prevent emitting bad state
-             }
+            const courseToSend = courses[gameState.currentCourse];
+            if (!courseToSend) {
+                console.error(`Error: Course '${gameState.currentCourse}' not found when trying to emit racing state.`);
+                return; // Prevent emitting bad state
+            }
 
-            // Always emit the update 
-            console.log(`Emitting updateGameState: ${gameState.state} with course data for ${gameState.currentCourse}`);
+            // Send updated game state to all players
             io.emit('updateGameState', gameState.state, gameState.players, {
                 courseId: gameState.currentCourse,
                 courseData: courseToSend,
                 editorTiles: courses[gameState.currentCourse]?.rawEditorTiles
             });
             
-            // Log if state changed for clarity
-            if (stateChanged) {
-                console.log('Racing state initiated and broadcasted with course data.');
-            }
+            // Additionally, send a specific join message to the new player
+            socket.emit('playerJoinedRace', {
+                position: gameState.players[socket.id].position,
+                rotation: gameState.players[socket.id].rotation,
+                message: "You have joined an in-progress race. Good luck!"
+            });
         }
     });
 
