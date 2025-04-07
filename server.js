@@ -480,8 +480,8 @@ function checkCollisions(gameState) {
                   console.warn(`Skipping obstacle collision check with type ${obstacle.type} due to invalid obstacle position:`, obstacle);
                   return; 
              }
-             // Use a fixed, smaller hitbox for solid obstacles, ignoring course data width/length
-             const OBSTACLE_HALF_SIZE = 0.5; // Makes obstacles 1x1 collision box
+             // Use a fixed, slightly larger hitbox for solid obstacles
+             const OBSTACLE_HALF_SIZE = 0.7; // Previous: 0.5, makes obstacles 1.4x1.4 box
              const obstacleHalfWidth = OBSTACLE_HALF_SIZE;
              const obstacleHalfLength = OBSTACLE_HALF_SIZE;
             

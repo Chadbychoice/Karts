@@ -1205,13 +1205,11 @@ function updateCameraPosition() {
 
 let lastUpdateTime = 0;
 const updateInterval = 100; // Send updates every 100ms (10 times per second)
-let canSendUpdate = true; // Flag to control sending updates
-const CLIENT_UPDATE_COOLDOWN = 150; // ms to wait after receiving server correction
 
 function sendLocalPlayerUpdate() {
     const now = Date.now();
-    // Check player data existence AND cooldown flag before sending
-    if (canSendUpdate && now - lastUpdateTime > updateInterval && localPlayerId && players[localPlayerId] && players[localPlayerId].position && players[localPlayerId].rotation) {
+    // Check player data existence before sending
+    if (now - lastUpdateTime > updateInterval && localPlayerId && players[localPlayerId] && players[localPlayerId].position && players[localPlayerId].rotation) {
         const playerState = players[localPlayerId];
         // Send only necessary data
         const updateData = {
