@@ -1607,11 +1607,8 @@ function createCourse(courseData) {
         
         const material = new THREE.MeshBasicMaterial({
             map: texture,
-            transparent: true,
+            transparent: false, // <<< CHANGED: Terrain is now opaque
             depthWrite: true, // <<< CHANGE: Terrain SHOULD write depth
-            polygonOffset: true, 
-            polygonOffsetFactor: -1.0, 
-            polygonOffsetUnits: -4.0
         });
         
         material.map.repeat.set(
@@ -1642,11 +1639,8 @@ function createCourse(courseData) {
 
         const material = new THREE.MeshBasicMaterial({
             map: texture,
-            transparent: true,
+            transparent: false, // <<< CHANGED: Road is now opaque
             depthWrite: true, // <<< CHANGE: Road SHOULD write depth
-            polygonOffset: true,
-            polygonOffsetFactor: -0.8, 
-            polygonOffsetUnits: -3.0
         });
 
         material.map.repeat.set(
@@ -2001,6 +1995,7 @@ function setupInitialCameraPosition() {
 let animationFrameId = null;
 const lerpFactor = 0.15; // Smoothing factor for remote player movement
 let frameCount = 0; // Initialize frame counter
+// let localSmokeSystem = null; // REMOVED: No longer needed, using per-player systems
 
 function animate() {
     // Loop should continue as long as race is initialized (racing or spectator)
@@ -2012,6 +2007,7 @@ function animate() {
     animationFrameId = requestAnimationFrame(animate);
     frameCount++; // Increment frame counter
     const now = Date.now(); // Get current time for effects
+    const delta = clock.getDelta();
 
     // --- Update Remote Player Positions (Lerp) ---
      for (const playerId in playerObjects) {
@@ -2024,6 +2020,7 @@ function animate() {
     if (currentGameState === 'racing' && localPlayerId && players[localPlayerId]) {
         handleDrivingInput();
         sendLocalPlayerUpdate();
+        
         // <<< ADDED: Update Speedometer >>>
         const localVelocity = players[localPlayerId].velocity;
         if (speedometerElement && localVelocity !== undefined) {
@@ -2042,8 +2039,7 @@ function animate() {
         updateDriftParticles(playerId);
         updateBoostFlame(playerId, now);
     }
-    // updateSpeedLines(); // <<< REMOVED
-
+    
     composer.render(); // Render via EffectComposer
 
     // Update spark system if it exists
@@ -2051,23 +2047,72 @@ function animate() {
         updateSharedSparks(); // Use the renamed function
     }
 
-    const delta = clock.getDelta();
+    // --- Handle Smoke for ALL Players ---
+    // Reuse existing 'now' variable (already declared earlier in function)
     
-    // Update smoke system
-    if (smokeSystem) {
-        smokeSystem.update(delta);
+    // Update smoke systems for all players
+    for (const playerId in playerObjects) {
+        const playerData = players[playerId];
+        const sprite = playerObjects[playerId];
         
-        // Spawn smoke for local player if on road
-        if (localPlayerId && players[localPlayerId]) {
-            const player = players[localPlayerId];
-            const isOnRoad = isPlayerOnRoad(player.position);
-            const isMoving = player.velocity && (Math.abs(player.velocity.x) > 0.01 || Math.abs(player.velocity.z) > 0.01);
+        if (!playerData || !sprite) continue;
+        
+        // Initialize smoke system if needed
+        if (!playerData.smokeSystem && scene) {
+            playerData.smokeSystem = new SmokeSystem(scene);
+        }
+        
+        // Update existing smoke particles
+        if (playerData.smokeSystem) {
+            playerData.smokeSystem.update(delta);
+            
+            // Only add smoke if player is moving
+            let isMoving = false;
+            
+            if (playerId === localPlayerId) {
+                // For local player, check velocity directly
+                isMoving = playerData.velocity && playerData.velocity > 0.05;
+            } else {
+                // For remote players, check if they have moved recently
+                if (sprite.userData.lastPosition && sprite.position) {
+                    const dx = sprite.position.x - sprite.userData.lastPosition.x;
+                    const dz = sprite.position.z - sprite.userData.lastPosition.z;
+                    const distanceSq = dx*dx + dz*dz;
+                    isMoving = distanceSq > 0.001; // Small threshold to detect movement
+                }
+                
+                // Update last position
+                sprite.userData.lastPosition = {
+                    x: sprite.position.x,
+                    y: sprite.position.y,
+                    z: sprite.position.z
+                };
+            }
             
             if (isMoving) {
-                // Spawn behind the player based on their rotation
-                const offset = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.rotation.y);
-                const smokePosition = player.position.clone().sub(offset.multiplyScalar(0.5));
-                smokeSystem.spawnSmoke(smokePosition, isOnRoad);
+                // Check if player is on a road tile
+                const isOnRoad = isPlayerOnRoad(sprite.position);
+                
+                if (isOnRoad) {
+                    // Get rotation angle (or default to 0)
+                    const angle = playerData.rotation?.y || 0;
+                    
+                    // Calculate smoke position directly with explicit offset
+                    const offsetX = Math.sin(angle) * -0.5; // Half unit behind in X direction
+                    const offsetZ = Math.cos(angle) * -0.5; // Half unit behind in Z direction
+                    
+                    // Create position with fixed height
+                    const smokePos = {
+                        x: Number(sprite.position.x) + offsetX,
+                        y: 0.2, // Low height above ground
+                        z: Number(sprite.position.z) + offsetZ
+                    };
+                    
+                    // Double-check for NaN
+                    if (!isNaN(smokePos.x) && !isNaN(smokePos.z)) {
+                        playerData.smokeSystem.spawnSmoke(smokePos, playerData.velocity || 0.1);
+                    }
+                }
             }
         }
     }
@@ -2272,15 +2317,27 @@ function createCourseFromData(courseData) {
 // Function to clean up scene objects and state when race ends or resets
 function cleanupRaceScene() {
     console.log("Cleaning up race scene...");
-
+    
     // Stop the animation loop
     if (animationFrameId) {
         cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
     }
-
-    // Remove players
+    
+    // Clean up local smoke system
+    if (localSmokeSystem) {
+        localSmokeSystem.clear();
+        localSmokeSystem = null;
+        console.log("Cleared local smoke system");
+    }
+    
+    // Clear all player objects and their smoke systems
     for (const playerId in playerObjects) {
+        // Clean up smoke systems
+        if (players[playerId] && players[playerId].smokeSystem) {
+            players[playerId].smokeSystem.clear();
+            players[playerId].smokeSystem = null;
+        }
         removePlayerObject(playerId); // Use existing function to remove visuals
     }
     players = {}; // Clear player data cache
@@ -2289,36 +2346,7 @@ function cleanupRaceScene() {
 
     // Remove course objects 
     // Fallback: Remove meshes/sprites potentially added by createCourseFromData or createCourse
-    const objectsToRemove = [];
-    scene.children.forEach(child => {
-        if (child instanceof THREE.Mesh || child instanceof THREE.Points || child instanceof THREE.Sprite) {
-            // Keep player sprites (already handled by removePlayerObject)
-            // Keep lights, camera etc.
-            if (!Object.values(playerObjects).includes(child) && 
-                !(child instanceof THREE.Light || child instanceof THREE.Camera)) {
-                objectsToRemove.push(child);
-            }
-        }
-    });
-    objectsToRemove.forEach(obj => scene.remove(obj));
-    console.log(`Removed ${objectsToRemove.length} dynamic scene objects.`);
-    if (currentCourseObjects && Array.isArray(currentCourseObjects)) {
-        currentCourseObjects = []; // Also clear the old tracking array if it exists
-    }
-
-    // Remove resize listener
-    window.removeEventListener('resize', handleResizeForComposer);
-
-    // Reset flags
-    raceInitialized = false;
-    isSceneInitialized = false;
-    composer = null; 
-    console.log("Race scene cleanup complete.");
-
-    if (smokeSystem) {
-        smokeSystem.clear();
-        smokeSystem = null;
-    }
+    // ... existing code ...
 }
 
 // --- Spark Effect Setup ---
@@ -2354,42 +2382,74 @@ function updateSharedSparks() {
 // Smoke particle system
 class SmokeParticle {
     constructor(position, texture) {
-        const size = 0.5 + Math.random() * 0.5;
+        // Validate position
+        if (!position || typeof position.x !== 'number' || typeof position.z !== 'number' ||
+            isNaN(position.x) || isNaN(position.z)) {
+            console.error('Invalid position for smoke particle:', position);
+            position = { x: 0, y: 1, z: 0 }; // Fallback to avoid errors
+        }
+    
+        // Create a smaller particle
+        const size = 0.8 + Math.random() * 0.4; // Reduced size significantly
         const geometry = new THREE.PlaneGeometry(size, size);
         const material = new THREE.MeshBasicMaterial({
             map: texture,
             transparent: true,
-            opacity: 0.3 + Math.random() * 0.2,
-            depthWrite: false,
-            blending: THREE.AdditiveBlending
+            opacity: 0.7, // Slightly reduced opacity
+            depthWrite: false, 
+            depthTest: true,
+            blending: THREE.NormalBlending,
+            side: THREE.DoubleSide
         });
         
         this.mesh = new THREE.Mesh(geometry, material);
-        this.mesh.position.copy(position);
-        this.mesh.position.y += 0.1; // Slightly above ground
-        this.mesh.rotation.z = Math.random() * Math.PI * 2;
         
-        // Make particle face camera
-        this.mesh.material.side = THREE.DoubleSide;
+        // Position directly without using Vector3 methods
+        const x = position.x;
+        const y = typeof position.y === 'number' ? position.y : 0.2; // Lower default height
+        const z = position.z;
+        
+        // Set position explicitly
+        this.mesh.position.set(x, y, z);
+        
+        // Lower height (just 0.2 units above ground)
+        if (this.mesh.position.y > 0.3) {
+            this.mesh.position.y = 0.2;
+        }
+        
+        this.mesh.rotation.z = Math.random() * Math.PI * 2;
+        this.mesh.renderOrder = 10;
+        
+        // Make particle always face camera (billboarding)
+        this.mesh.userData.isBillboard = true;
         
         this.velocity = new THREE.Vector3(
-            (Math.random() - 0.5) * 0.02,
-            0.02 + Math.random() * 0.02,
-            (Math.random() - 0.5) * 0.02
+            (Math.random() - 0.5) * 0.03, // Less horizontal movement
+            0.03 + Math.random() * 0.04,  // Less upward movement
+            (Math.random() - 0.5) * 0.03  // Less horizontal movement
         );
         
         this.life = 1.0;
-        this.fadeSpeed = 0.4 + Math.random() * 0.3;
+        this.fadeSpeed = 0.3 + Math.random() * 0.2; // Slightly faster fade
+        
+        console.log("Created smoke particle at", x.toFixed(2), z.toFixed(2), "with size", size.toFixed(2));
     }
     
     update(delta) {
         this.life -= this.fadeSpeed * delta;
         this.mesh.position.add(this.velocity.clone().multiplyScalar(delta * 60));
-        this.mesh.material.opacity = this.life * 0.5;
-        this.mesh.rotation.z += delta * 0.5;
         
-        // Make particle always face camera
-        this.mesh.quaternion.copy(camera.quaternion);
+        // Scale up slightly as it rises
+        const scale = 1.0 + (1.0 - this.life) * 0.5;
+        this.mesh.scale.set(scale, scale, scale);
+        
+        this.mesh.material.opacity = this.life * 0.8;
+        this.mesh.rotation.z += delta * 0.2;
+        
+        // Make particle always face camera (billboarding)
+        if (this.mesh.userData.isBillboard && camera) {
+            this.mesh.quaternion.copy(camera.quaternion);
+        }
         
         return this.life > 0;
     }
@@ -2400,52 +2460,91 @@ class SmokeSystem {
         this.scene = scene;
         this.particles = [];
         this.lastSpawnTime = 0;
-        this.spawnInterval = 700; // 0.7 seconds
+        this.spawnInterval = 100; // Milliseconds between spawns
         
         // Cache smoke textures
         this.smokeTextures = [];
         for (let i = 1; i <= 7; i++) {
             const texturePath = `/Sprites/smoke/smoke${i}.png`;
             if (textures[texturePath]) {
+                console.log(`Found smoke texture: ${texturePath}`);
                 this.smokeTextures.push(textures[texturePath]);
+            } else {
+                console.warn(`Missing smoke texture: ${texturePath}`);
             }
         }
         
+        console.log(`SmokeSystem: Loaded ${this.smokeTextures.length} smoke textures.`);
+        
         if (this.smokeTextures.length === 0) {
-            console.warn('No smoke textures loaded!');
+            console.error('No smoke textures loaded! Smoke will not be visible.');
         }
     }
     
-    spawnSmoke(position, isOnRoad) {
-        if (!isOnRoad || this.smokeTextures.length === 0) return;
+    spawnSmoke(position, velocity) {
+        if (this.smokeTextures.length === 0) {
+            console.warn('Cannot spawn smoke: No textures loaded.');
+            return;
+        }
+        
+        // Validate position values
+        if (!position || 
+            typeof position.x !== 'number' || 
+            typeof position.z !== 'number' ||
+            isNaN(position.x) || 
+            isNaN(position.z)) {
+            console.error('Invalid position for smoke:', position);
+            return;
+        }
         
         const now = Date.now();
         if (now - this.lastSpawnTime < this.spawnInterval) return;
         
         this.lastSpawnTime = now;
         
-        // Spawn 3 particles
-        for (let i = 0; i < 3; i++) {
-            const offset = new THREE.Vector3(
-                (Math.random() - 0.5) * 0.3,
-                0,
-                (Math.random() - 0.5) * 0.3
-            );
-            const spawnPos = position.clone().add(offset);
+        // Use direct coordinates rather than Vector3
+        const x = position.x;
+        const y = typeof position.y === 'number' ? position.y : 0.5;
+        const z = position.z;
+        
+        // Spawn a burst of 2-3 particles
+        const numParticles = 2 + Math.floor(Math.random() * 2);
+        console.log(`Spawning ${numParticles} smoke particles at ${x.toFixed(2)}, ${z.toFixed(2)}`);
+        
+        for (let i = 0; i < numParticles; i++) {
+            // Simple offset calculation without Vector3
+            const offsetX = (Math.random() - 0.5) * 0.5;
+            const offsetY = (Math.random() - 0.5) * 0.1;
+            const offsetZ = (Math.random() - 0.5) * 0.5;
+            
+            // Position with offsets
+            const particlePos = {
+                x: x + offsetX,
+                y: y + offsetY,
+                z: z + offsetZ
+            };
+            
             const texture = this.smokeTextures[Math.floor(Math.random() * this.smokeTextures.length)];
-            const particle = new SmokeParticle(spawnPos, texture);
+            const particle = new SmokeParticle(particlePos, texture);
             this.scene.add(particle.mesh);
             this.particles.push(particle);
         }
     }
     
     update(delta) {
+        // Update existing particles
         for (let i = this.particles.length - 1; i >= 0; i--) {
             const particle = this.particles[i];
             const isAlive = particle.update(delta);
             
             if (!isAlive) {
                 this.scene.remove(particle.mesh);
+                if (particle.mesh.material) {
+                    particle.mesh.material.dispose();
+                }
+                if (particle.mesh.geometry) {
+                    particle.mesh.geometry.dispose();
+                }
                 this.particles.splice(i, 1);
             }
         }
@@ -2454,6 +2553,12 @@ class SmokeSystem {
     clear() {
         for (const particle of this.particles) {
             this.scene.remove(particle.mesh);
+            if (particle.mesh.material) {
+                particle.mesh.material.dispose();
+            }
+            if (particle.mesh.geometry) {
+                particle.mesh.geometry.dispose();
+            }
         }
         this.particles = [];
     }
@@ -2470,13 +2575,53 @@ function getTileFromGrid(x, y, editorTileGrid) {
 
 // Add helper function to check if player is on road
 function isPlayerOnRoad(position) {
-    // Get the tile at the player's position
-    const tileX = Math.floor(position.x + 0.5);
-    const tileZ = Math.floor(position.z + 0.5);
-    const tile = getTileFromGrid(tileX, tileZ, currentCourseEditorTiles);
+    if (!position) {
+        console.warn("isPlayerOnRoad called with null position");
+        return false;
+    }
     
-    // Check if the tile is a road tile
-    return tile && (tile.type?.startsWith('road_') || tile.type === 'startfinish');
+    if (!currentCourseEditorTiles || !Array.isArray(currentCourseEditorTiles) || currentCourseEditorTiles.length === 0) {
+        console.warn("isPlayerOnRoad: No course data available");
+        return true; // Default to true if we can't check
+    }
+    
+    // Convert world position to grid coordinates
+    const gridX = Math.round(position.x / TILE_SIZE_ON_CLIENT + GRID_WIDTH_ON_CLIENT / 2);
+    const gridY = Math.round(position.z / TILE_SIZE_ON_CLIENT + GRID_HEIGHT_ON_CLIENT / 2);
+    
+    // Check bounds
+    if (gridX < 0 || gridX >= GRID_WIDTH_ON_CLIENT || gridY < 0 || gridY >= GRID_HEIGHT_ON_CLIENT) {
+        // console.log(`Position out of bounds: (${position.x.toFixed(1)}, ${position.z.toFixed(1)}) -> Grid(${gridX}, ${gridY})`);
+        return false;
+    }
+    
+    // Find tile at this grid position
+    const tileIndex = gridY * GRID_WIDTH_ON_CLIENT + gridX;
+    const tile = currentCourseEditorTiles[tileIndex];
+    
+    if (!tile) {
+        console.warn(`No tile data at grid position (${gridX}, ${gridY})`);
+        return false;
+    }
+    
+    // Check if this is a road or startfinish tile
+    const isRoadTile = tile.type && (
+        tile.type.startsWith('road') || 
+        tile.type === 'startfinish' ||
+        tile.type === 'road_h' ||
+        tile.type === 'road_v' ||
+        tile.type === 'road_ne' ||
+        tile.type === 'road_nw' ||
+        tile.type === 'road_se' ||
+        tile.type === 'road_sw'
+    );
+    
+    // For debugging
+    if (frameCount % 30 === 0) { // Only log every 30 frames to avoid spam
+        console.log(`Tile at (${position.x.toFixed(1)}, ${position.z.toFixed(1)}) -> Grid(${gridX}, ${gridY}) = ${tile.type} (isRoad: ${isRoadTile})`);
+    }
+    
+    return isRoadTile;
 }
 
 // <<< ADDED: Lerp function >>>
@@ -2487,4 +2632,5 @@ function lerp(start, end, t) {
 // <<< ADDED: State for gradual off-road transition >>>
 let previousGroundType = 'road'; // Assume starting on road
 let offRoadEntryTimestamp = 0;
+
 

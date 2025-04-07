@@ -703,7 +703,18 @@ io.on('connection', (socket) => {
                         player.velocity *= slowdownFactor;
                         // Optional: Log the slowdown
                         console.log(`Player ${socket.id} slowed on ${groundTile.type}. New velocity: ${player.velocity.toFixed(2)}`);
+                        // Stop smoke if slowing down
+                        socket.broadcast.emit('playerDrivingEffect', socket.id, 'none');
+                    } else if (groundTile && (groundTile.type.startsWith('road') || groundTile.type === 'startfinish')) {
+                         // Emit smoke effect for road or start/finish line
+                         socket.broadcast.emit('playerDrivingEffect', socket.id, 'smoke');
+                    } else {
+                         // Emit no effect for other tile types (or no tile)
+                         socket.broadcast.emit('playerDrivingEffect', socket.id, 'none');
                     }
+                } else {
+                     // Player is off the grid, emit no effect
+                     socket.broadcast.emit('playerDrivingEffect', socket.id, 'none');
                 }
             }
             // <<< END ADDED >>>
