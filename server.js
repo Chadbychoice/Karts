@@ -455,6 +455,7 @@ function checkCollisions(gameState) {
     }
     
     // --- Player vs Obstacle Collisions --- 
+    /* <<< TEMPORARILY DISABLED FOR JITTER DEBUGGING >>>
     for (let i = 0; i < players.length; i++) {
         const player = players[i];
         
@@ -466,33 +467,20 @@ function checkCollisions(gameState) {
              continue; 
          }
          if (player.velocity === undefined || player.velocity === null || isNaN(player.velocity)) {
-             // console.warn(`Player ${player.id} velocity is NaN/undefined before obstacle check. Setting to 0.`);
              player.velocity = 0; 
          }
-
 
         obstacles.forEach(obstacle => {
             if (!solidObstacleTypes.has(obstacle.type)) return;
             
             // --- Obstacle Validation ---
-             // Ensure obstacle position is valid FIRST
              if (typeof obstacle.x !== 'number' || isNaN(obstacle.x) || typeof obstacle.z !== 'number' || isNaN(obstacle.z)) {
                   console.warn(`Skipping obstacle collision check with type ${obstacle.type} due to invalid obstacle position:`, obstacle);
                   return; 
              }
-             // Use a fixed, slightly larger hitbox for solid obstacles
-             const OBSTACLE_HALF_SIZE = 0.7; // Previous: 0.5, makes obstacles 1.4x1.4 box
+             const OBSTACLE_HALF_SIZE = 0.7;
              const obstacleHalfWidth = OBSTACLE_HALF_SIZE;
              const obstacleHalfLength = OBSTACLE_HALF_SIZE;
-            
-            // --- REMOVED Broad-Phase Check --- 
-            // const dx = player.position.x - obstacle.x;
-            // const dz = player.position.z - obstacle.z;
-            // const distanceSq = dx * dx + dz * dz;
-            // const BROAD_PHASE_DISTANCE_SQ = 25;
-            // if (distanceSq > BROAD_PHASE_DISTANCE_SQ) {
-            //      return; 
-            // }
             
              // <<< Diagnostic Log >>>
              console.log(`  [Check AABB] Player ${player.id} (Pos: ${player.position.x.toFixed(2)},${player.position.z.toFixed(2)}) vs Obstacle ${obstacle.type} (Pos: ${obstacle.x.toFixed(2)},${obstacle.z.toFixed(2)})`);
@@ -500,13 +488,11 @@ function checkCollisions(gameState) {
             // --- AABB Check --- 
             const PLAYER_HALF_WIDTH = 0.4; 
             
-            // Calculate player bounds
             const playerMinX = player.position.x - PLAYER_HALF_WIDTH;
             const playerMaxX = player.position.x + PLAYER_HALF_WIDTH;
             const playerMinZ = player.position.z - PLAYER_HALF_WIDTH;
             const playerMaxZ = player.position.z + PLAYER_HALF_WIDTH;
             
-            // Calculate obstacle bounds (using fixed size now)
             const obstacleMinX = obstacle.x - obstacleHalfWidth;
             const obstacleMaxX = obstacle.x + obstacleHalfWidth;
             const obstacleMinZ = obstacle.z - obstacleHalfLength;
@@ -519,43 +505,33 @@ function checkCollisions(gameState) {
                 console.log(`---> OBSTACLE COLLISION DETECTED: Player ${player.id} vs Obstacle ${obstacle.type}`);
                 
                 // --- Simplified Direct Pushback Response --- 
-                // Calculate vector from obstacle center to player center
                 const pushVectorX = player.position.x - obstacle.x;
                 const pushVectorZ = player.position.z - obstacle.z;
                 const pushDist = Math.sqrt(pushVectorX * pushVectorX + pushVectorZ * pushVectorZ);
 
-                // Normalize the push vector (handle division by zero)
                 let normPushX = 0;
                 let normPushZ = 0;
-                if (pushDist > 0.001) { // Avoid division by zero or near-zero
+                if (pushDist > 0.001) { 
                      normPushX = pushVectorX / pushDist;
                      normPushZ = pushVectorZ / pushDist;
                 } else { 
-                    // If player is exactly on top, push in a default direction (e.g., positive X)
                     console.warn(`Player ${player.id} is directly on top of obstacle ${obstacle.type}. Applying default push.`);
                     normPushX = 1;
                     normPushZ = 0;
                 }
                 
-                 // Calculate the required separation distance (how much they overlap)
-                 // This is approximated by the sum of radii minus the current distance
                  const totalHalfWidths = PLAYER_HALF_WIDTH + OBSTACLE_HALF_SIZE; 
-                 const overlap = Math.max(0, totalHalfWidths - pushDist); // Ensure overlap is not negative
+                 const overlap = Math.max(0, totalHalfWidths - pushDist);
                 
-                 // <<< RIGOROUS NaN check before applying correction >>>
                  if (isNaN(normPushX) || isNaN(normPushZ) || isNaN(overlap)) {
                       console.error(`!!! FATAL: Calculated NaN pushback values! normX=${normPushX}, normZ=${normPushZ}, overlap=${overlap}`);
-                      return; // Skip applying correction if values are invalid
+                      return;
                  }
 
-                // Apply position correction directly along the push vector
                 player.position.x += normPushX * overlap;
                 player.position.z += normPushZ * overlap;
                 console.log(`  Pushing player ${player.id} along (${normPushX.toFixed(2)}, ${normPushZ.toFixed(2)}) by ${overlap.toFixed(3)}`);
-
-                // --- END Simplified Direct Pushback --- 
                 
-                // <<< RIGOROUS NaN check AFTER applying correction >>>
                  if (isNaN(player.position.x) || isNaN(player.position.z)) {
                       console.error(`!!! FATAL: Player (${player.id}) position became NaN AFTER Obstacle separation!`);
                  }
@@ -569,7 +545,6 @@ function checkCollisions(gameState) {
                  } else {
                       console.log(`  Player ${player.id} velocity changed from ${oldVelocity.toFixed(2)} to ${player.velocity.toFixed(2)}`);
                  }
-
 
                 // --- Emit Event (Ensure data validity) --- 
                  const obstaclePosY = (obstacle.y === undefined || isNaN(obstacle.y)) ? 0 : obstacle.y;
@@ -585,6 +560,7 @@ function checkCollisions(gameState) {
             } 
         });
     }
+    */ // <<< END TEMPORARY DISABLE >>>
     
     return collisions.length > 0 ? collisions : null; 
 }
