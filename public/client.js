@@ -587,30 +587,34 @@ socket.on('playerLeft', (playerId) => {
 });
 
 socket.on('updatePlayerPosition', (playerId, position, rotation) => {
-    if (players[playerId]) {
-        // Lerp position for remote players for smoothness
-        if (playerId !== localPlayerId && playerObjects[playerId] && position) {
-             // Store target position if not already doing so
-             if (!playerObjects[playerId].userData) playerObjects[playerId].userData = {};
-             // Remote players get exact Y + offset
-             playerObjects[playerId].userData.targetPosition = new THREE.Vector3(position.x, position.y + playerSpriteScale / 2, position.z); 
-        } else if (playerId === localPlayerId && position) {
-             // Update local player position, BUT KEEP Y POSITION LOCAL
-             players[playerId].position.x = position.x;
-             players[playerId].position.z = position.z;
-             // Do NOT update players[playerId].position.y from server
-             updatePlayerObjectTransform(playerId, players[playerId].position, rotation); // Update visual immediately
-        }
+     console.log(`Received updatePlayerPosition for ${playerId}`);
+    if (!players[playerId]) return; // Ignore if player doesn't exist locally
 
-        // Always update rotation data (no lerping needed for this typically)
-        if (rotation) {
-             players[playerId].rotation = rotation;
-             // Visual update for rotation happens via angle calculation now
-        }
+     // Store the received state (ground level)
+     if (position) {
+        players[playerId].position = { ...position, y: 0 };
+     }
+     if (rotation) {
+        players[playerId].rotation = rotation;
+     }
+    
+    // <<< IMPORTANT: Apply update directly to visual object >>>
+    if (playerObjects[playerId]) {
+         const sprite = playerObjects[playerId];
+         if (position) {
+             // Apply visual position immediately, including height offset
+             sprite.position.set(
+                 position.x,
+                 playerSpriteScale / 2, // Use correct visual height
+                 position.z
+             );
+             console.log(`---> Applied position correction to ${playerId}: X=${position.x.toFixed(2)}, Z=${position.z.toFixed(2)}`);
+         }
+         // Rotation is handled by sprite angle updates, no direct rotation needed here.
     } else {
-        console.warn("Received position update for unknown player:", playerId);
-        // Optionally request full player data from server if needed
-        // socket.emit('requestPlayerData', playerId);
+         // If player object doesn't exist yet but we got an update, 
+         // it might be created shortly after in updatePlayerObjects().
+         // The position data stored in players[playerId] will be used then.
     }
 });
 
@@ -761,15 +765,26 @@ function removePlayerObject(playerId) {
 }
 
 function updatePlayerObjectTransform(playerId, position, rotation) {
-    const playerObject = playerObjects[playerId];
-    if (playerObject && position) {
-        // For local player, update position directly.
-        // For remote players, this is handled by lerping in the animate loop.
-         if (playerId === localPlayerId) {
-            playerObject.position.set(position.x, position.y + 0.5, position.z); // Reduced height
-         }
-        // Rotation data is stored in `players[playerId].rotation`
-        // The visual update based on rotation happens in `updatePlayerSpriteAngle`
+    if (!playerObjects[playerId]) return;
+    const sprite = playerObjects[playerId];
+    
+    if (position) {
+        sprite.position.set(
+            position.x,
+            playerSpriteScale / 2, // Visual height offset
+            position.z
+        );
+        // Ensure the data object also reflects the latest server/local position (ground level)
+        if (players[playerId]) {
+            players[playerId].position = { ...position, y: 0 }; 
+        }
+    }
+    
+    if (rotation) {
+        // Sprites don't rotate, but we store the data for angle calculation
+        if (players[playerId]) {
+             players[playerId].rotation = rotation; 
+        }
     }
 }
 
