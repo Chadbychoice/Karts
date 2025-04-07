@@ -329,6 +329,15 @@ let selectedCharacterIndex = 0;
 let characterIds; // Declare globally
 
 // --- Character Selection Logic ---
+
+// <<< ADDED Function Definition >>>
+function showCharacterSelection() {
+    characterSelectionOverlay.style.display = 'flex';
+    waitingScreenOverlay.style.display = 'none';
+    setupCharacterSelection();
+    document.addEventListener('keydown', handleCharacterSelectionInput);
+}
+
 function setupCharacterSelection() {
     console.log("Running setupCharacterSelection...");
     const characterGrid = document.getElementById('character-grid');
