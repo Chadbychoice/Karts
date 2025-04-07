@@ -61,7 +61,7 @@ const solidObstacleTypes = new Set([
 // Define constants for collision checks
 const PLAYER_HALF_WIDTH = 0.5; 
 const PLAYER_HALF_LENGTH = 0.5; 
-const OBSTACLE_HALF_SIZE = 0.9; // Previous: 0.8, makes obstacles 1.8x1.8 box
+const OBSTACLE_HALF_SIZE = 1.5; // Previous: 0.9, makes obstacles 3.0x3.0 box
 const obstacleHalfWidth = OBSTACLE_HALF_SIZE;
 const obstacleHalfLength = OBSTACLE_HALF_SIZE;
 
@@ -476,9 +476,9 @@ function checkCollisions(gameState) {
             // Ensure obstacle position is valid FIRST
             // ... validation ...
             // Use a fixed hitbox for solid obstacles, adjust size as needed
-            const OBSTACLE_HALF_SIZE = 0.9; // Previous: 0.8, makes obstacles 1.8x1.8 box
-            const obstacleHalfWidth = OBSTACLE_HALF_SIZE;
-            const obstacleHalfLength = OBSTACLE_HALF_SIZE;
+            const OBSTACLE_HALF_SIZE = 1.5; // Previous: 0.9, makes obstacles 3.0x3.0 box
+            let obstacleHalfWidth = OBSTACLE_HALF_SIZE;
+            let obstacleHalfLength = OBSTACLE_HALF_SIZE;
             
             // <<< ADDED: Custom size for specific types >>>
             if (obstacle.type === 'tires' || obstacle.type === 'blocks') {
