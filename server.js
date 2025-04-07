@@ -429,16 +429,16 @@ function checkCollisions(gameState) {
         }
 
         obstacles.forEach(obstacle => {
-            // Only check against SOLID obstacles
             if (!solidObstacleTypes.has(obstacle.type)) {
-                return; // Skip non-solid obstacles like mud
+                return; 
             }
             
-            // Simple AABB (Axis-Aligned Bounding Box) collision check for now
-            // Assuming player is roughly 1x1 world units for this check
-            const playerRadius = 1.0; // Approximate player size
-            const obstacleHalfWidth = (obstacle.width || 1) / 2;
-            const obstacleHalfLength = (obstacle.length || 1) / 2;
+            // <<< ADDED: Obstacle Collision Debug Logging >>>
+            // console.log(`Checking Player ${player.id} (Pos: ${player.position.x.toFixed(2)}, ${player.position.z.toFixed(2)}) against Obstacle ${obstacle.type} (Pos: ${obstacle.x.toFixed(2)}, ${obstacle.z.toFixed(2)}, Size: ${obstacle.width}x${obstacle.length})`);
+
+            const playerRadius = 1.0; 
+            const obstacleHalfWidth = (obstacle.width || EDITOR_TILE_SIZE) / 2; // Use EDITOR_TILE_SIZE as fallback width
+            const obstacleHalfLength = (obstacle.length || EDITOR_TILE_SIZE) / 2; // Use EDITOR_TILE_SIZE as fallback length
             
             const playerMinX = player.position.x - playerRadius;
             const playerMaxX = player.position.x + playerRadius;
@@ -452,7 +452,8 @@ function checkCollisions(gameState) {
 
             // Check for overlap
             if (playerMaxX > obstacleMinX && playerMinX < obstacleMaxX && playerMaxZ > obstacleMinZ && playerMinZ < obstacleMaxZ) {
-                console.log(`Player ${player.id} collided with obstacle ${obstacle.type} at (${obstacle.x}, ${obstacle.z})`);
+                // <<< ADDED: Log actual collision detection >>>
+                console.log(`---> COLLISION DETECTED: Player ${player.id} vs Obstacle ${obstacle.type}`);
                 
                 // --- Simple Bounce Response --- 
                 // Calculate overlap depth (rough estimate)
@@ -480,7 +481,10 @@ function checkCollisions(gameState) {
                 // Optional: Trigger a visual/sound effect via client event
                  io.to(player.id).emit('obstacleCollision', { type: obstacle.type }); // Send only to the player who hit it
                  // We could also broadcast if needed: io.emit(...) 
-            }
+            } // <<< ADDED: Log if NO collision for debugging >>>
+            // else {
+            //    console.log(`   No collision.`);
+            // }
         });
     }
     

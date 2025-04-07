@@ -2227,7 +2227,8 @@ function initializeSparkSystem() {
         transparent: true,
         alphaTest: 0.1,
         depthWrite: false,
-        blending: THREE.AdditiveBlending // Brighter sparks
+        blending: THREE.AdditiveBlending, // Brighter sparks
+        renderOrder: 10 // <<< INCREASED Render Order
     });
 
     sparkSystem = new THREE.Points(sparkGeometry, sparkMaterial);
@@ -2441,9 +2442,9 @@ function createFlame(playerId) {
         color: 0xffffff, 
         transparent: true,
         blending: THREE.AdditiveBlending, 
-        depthWrite: false, // Re-confirm
-        depthTest: false, // Re-confirm
-        renderOrder: 5 // Re-confirm
+        depthWrite: false, // Ensure
+        depthTest: false, // Ensure
+        renderOrder: 10 // <<< INCREASED Render Order
     });
 
     const sprite = new THREE.Sprite(material);
@@ -2499,9 +2500,9 @@ function createDriftParticles(playerId) {
         sizeAttenuation: true,
         transparent: true,
         blending: THREE.AdditiveBlending, 
-        depthWrite: false, // Re-confirm
-        depthTest: false, // Re-confirm
-        renderOrder: 5 // Re-confirm
+        depthWrite: false, // Ensure
+        depthTest: false, // Ensure
+        renderOrder: 10 // <<< INCREASED Render Order
     });
 
     const particles = new THREE.Points(geometry, particleMaterial);
@@ -2530,10 +2531,10 @@ function initializeSpeedLines() {
         sizeAttenuation: true,
         transparent: true,
         opacity: 0.5,
-        depthWrite: false,
-        depthTest: false,
+        depthWrite: false, // Ensure
+        depthTest: false, // Ensure
         blending: THREE.AdditiveBlending,
-        renderOrder: 6 // Render on top of sparks/flames
+        renderOrder: 11 // <<< INCREASED Render Order (Above other particles)
     });
 
     speedLinesSystem = new THREE.Points(geometry, material);
@@ -2577,7 +2578,7 @@ function updateSpeedLines() {
     let spawnCount = 0;
     if (velocityFraction > speedLineSpawnThreshold) {
         spawnCount = Math.floor(velocityFraction * speedLineMaxSpawnRate);
-        if (isBoosting) spawnCount = Math.min(MAX_SPEED_LINES, spawnCount * 3); // More lines when boosting
+        if (isBoosting) spawnCount = Math.min(MAX_SPEED_LINES, spawnCount * 3);
     }
 
     let spawnedThisFrame = 0;
@@ -2586,24 +2587,30 @@ function updateSpeedLines() {
             // Activate particle
             speedLineParticles[i].life = speedLineLife;
             
-            // Calculate spawn position relative to camera
+            // <<< FIXED: Spawn relative to PLAYER, oriented by CAMERA >>>
             const forward = new THREE.Vector3();
             camera.getWorldDirection(forward);
-            const right = new THREE.Vector3();
-            camera.getWorldDirection(right).cross(camera.up); // Camera's right vector
+            const right = new THREE.Vector3().crossVectors(camera.up, forward).normalize(); // Camera's right vector
             const up = new THREE.Vector3().copy(camera.up);
             
-            // Spawn in a plane in front of the camera
-            const spawnPos = camera.position.clone();
-            spawnPos.addScaledVector(forward, speedLineDistance); // Distance in front
-            spawnPos.addScaledVector(right, (Math.random() - 0.5) * speedLineSpread); // Horizontal spread
-            spawnPos.addScaledVector(up, (Math.random() - 0.5) * speedLineSpread * 0.5); // Vertical spread
+            // Start at player position 
+            const playerPos = playerObjects[localPlayerId].position;
+            const spawnPos = playerPos.clone(); 
+            
+            // Offset forward slightly relative to camera view
+            spawnPos.addScaledVector(forward, speedLineDistance * 0.5); // Closer spawn
+            // Add spread based on camera right/up
+            spawnPos.addScaledVector(right, (Math.random() - 0.5) * speedLineSpread);
+            spawnPos.addScaledVector(up, (Math.random() - 0.5) * speedLineSpread * 0.5);
 
             speedLineParticles[i].position.copy(spawnPos);
             
-            // Velocity towards camera (or slightly past it)
-             const velocityMagnitude = -0.5 - (velocityFraction * 0.5); // Faster lines at higher speed
-             speedLineParticles[i].velocity.copy(forward).multiplyScalar(velocityMagnitude); 
+            // <<< FIXED: Velocity primarily AWAY from camera >>>
+             const velocityMagnitude = -1.0 - (velocityFraction * 1.0); // Faster lines
+             speedLineParticles[i].velocity.copy(forward).multiplyScalar(velocityMagnitude);
+             // Add slight player-direction influence?
+             // const playerForward = new THREE.Vector3(0, 0, -1).applyAxisAngle(THREE.Object3D.DEFAULT_UP, player.rotation.y);
+             // speedLineParticles[i].velocity.lerp(playerForward.multiplyScalar(velocityMagnitude), 0.1);
             
             spawnedThisFrame++;
         }
@@ -2616,10 +2623,10 @@ function updateSpeedLines() {
         if (speedLineParticles[i].life > 0) {
             speedLineParticles[i].life -= delta;
             if (speedLineParticles[i].life <= 0) {
-                positions[i * 3 + 1] = -10000; // Move offscreen
+                positions[i * 3 + 1] = -10000; 
             } else {
-                // Update position
-                 speedLineParticles[i].position.addScaledVector(speedLineParticles[i].velocity, delta * 0.05); // Adjust multiplier for speed
+                // Update position based on velocity
+                 speedLineParticles[i].position.addScaledVector(speedLineParticles[i].velocity, delta * 0.05); 
                  positions[i * 3 + 0] = speedLineParticles[i].position.x;
                  positions[i * 3 + 1] = speedLineParticles[i].position.y;
                  positions[i * 3 + 2] = speedLineParticles[i].position.z;
