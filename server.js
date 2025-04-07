@@ -687,7 +687,8 @@ io.on('connection', (socket) => {
                       const posChangeDistanceSq = dx * dx + dz * dz;
 
                       const velChanged = finalPlayerState.velocity !== velocityBeforeCheck;
-                      const CORRECTION_THRESHOLD_SQ = 0.01 * 0.01; // Only correct if position changed by > 0.01 units
+                      // INCREASED Threshold: Only correct if position changed by > 0.1 units squared
+                      const CORRECTION_THRESHOLD_SQ = 0.1 * 0.1; 
                       
                       if (posChanged || velChanged) {
                            collisionModifiedState = true;
