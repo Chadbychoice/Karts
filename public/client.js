@@ -777,6 +777,9 @@ function updatePlayerObjectTransform(playerId, position, rotation) {
 const forwardVector = new THREE.Vector3(0, 0, -1); // Base forward vector in Three.js convention (negative Z)
 const cameraForward = new THREE.Vector3();
 const playerForward = new THREE.Vector3();
+// const flatPlayerPos = new THREE.Vector3(); // Not needed
+// const flatCameraPos = new THREE.Vector3(); // Not needed
+// const vecToPlayer = new THREE.Vector3(); // Not needed
 
 function calculateSpriteAngleIndex(sprite, playerData) {
     if (!playerData || !playerData.rotation) return 4; // Default to 'b' (index 4) if no rotation data
@@ -812,6 +815,7 @@ function calculateSpriteAngleIndex(sprite, playerData) {
     // Floor division by segment size after adding half-segment offset maps angle to index
     let temp_index = Math.floor((normalizedAngle + halfSegment) / segment);
     temp_index = temp_index % 8; // Ensure index is within [0, 7]
+    // index = (index + 4) % 8; // REMOVE previous offset logic
 
     // Map the calculated segment index (counter-clockwise from camera forward)
     // to the desired sprite array index based on visual expectation.
@@ -911,6 +915,7 @@ const DRIFT_COUNTER_STEER_FACTOR = 0.4; // How much player input affects drift a
 const DRIFT_SIDEWAYS_FACTOR = 0.4; // INCREASED: More base sideways slide
 const DRIFT_COUNTER_STEER_RADIUS_EFFECT = 25.0; // EXTREME potential effect
 const DRIFT_RADIUS_LERP_FACTOR = 0.0025; // Further decreased for slower radius changes
+// const DRIFT_SPEED_MULTIPLIER = 0.98; // REMOVED - No speed penalty for drifting
 const MINI_TURBO_LEVEL_1_TIME = 1000; // ms for blue sparks
 const MINI_TURBO_LEVEL_2_TIME = 2000; // ms for orange sparks
 const BOOST_LEVEL_1_STRENGTH = 0.3; // Additional velocity
@@ -1073,6 +1078,9 @@ function handleDrivingInput() {
     // --- Acceleration / Deceleration --- (Mostly unchanged)
     let currentMaxSpeed = (now < boostEndTime) ? MAX_SPEED + BOOST_LEVEL_2_STRENGTH : MAX_SPEED; // Allow higher speed during boost
     let currentAcceleration = ACCELERATION;
+    // if (isCurrentlyDrifting) { // Keep drift accel penalty? Optional.
+    //     currentAcceleration *= 0.5;
+    // }
 
     if (!isHopping && (keyStates['w'] || keyStates['arrowup'])) {
         player.velocity += currentAcceleration;
@@ -1730,6 +1738,7 @@ function initializeRaceScene(initialPlayers, options) {
 
     // Initialize effects
     initializeSparkSystem();
+    initializeSpeedLines(); // <<< ADDED: Initialize speed lines
 
     // Start animation loop if not already running
     if (!animationFrameId) {
@@ -1813,9 +1822,9 @@ function animate() {
         updateDriftParticles(playerId);
         updateBoostFlame(playerId, now);
     }
+    updateSpeedLines(); // <<< ADDED: Update speed lines
 
-    // composer.render(); // Render via EffectComposer
-    composer.render(); // <<< Restore composer rendering
+    composer.render(); // Render via EffectComposer
 
     // Update spark system if it exists
     if (sparkSystem) {
@@ -1925,7 +1934,7 @@ const FLAME_LOOP_START_INDEX = 4;
 const playerForwardFlame = new THREE.Vector3(0, 0, -1);
 const flameTargetPosition = new THREE.Vector3();
 const flameOffsetDistance = -0.6;
-const flameYPosition = 0.02;
+const flameYPosition = 0.1; // <<< Increased Y position slightly
 
 function updateBoostFlame(playerId, now) {
     if (!playerVisuals[playerId] || !players[playerId] || !playerObjects[playerId]) return;
@@ -1955,7 +1964,7 @@ function updateBoostFlame(playerId, now) {
 
         flameTargetPosition.copy(playerSprite.position);
         flameTargetPosition.addScaledVector(playerForwardFlame, flameOffsetDistance);
-        flameTargetPosition.y = flameYPosition;
+        flameTargetPosition.y = flameYPosition; // Use defined Y offset
 
         boostFlame.position.copy(flameTargetPosition);
 
@@ -2218,7 +2227,8 @@ function initializeSparkSystem() {
         transparent: true,
         alphaTest: 0.1,
         depthWrite: false,
-        blending: THREE.AdditiveBlending // Brighter sparks
+        blending: THREE.AdditiveBlending, // Brighter sparks
+        renderOrder: 10 // <<< INCREASED Render Order
     });
 
     sparkSystem = new THREE.Points(sparkGeometry, sparkMaterial);
@@ -2393,34 +2403,27 @@ function updatePlayerMesh(playerId, characterId, angle) {
 }
 
 function createPlayerMesh(playerId, characterId) {
-    const texture = getCharacterTexture(characterId, 'b'); // Start facing back initially
-    if (!texture) {
-        console.error(`Failed to get texture for character ${characterId} for player ${playerId}`);
-        // Create a fallback placeholder?
-        const geometry = new THREE.PlaneGeometry(1, 1); // Simple plane
-        const material = new THREE.MeshBasicMaterial({ color: 0xff00ff, side: THREE.DoubleSide });
-        const placeholder = new THREE.Mesh(geometry, material);
-        placeholder.rotation.x = -Math.PI / 2; // Rotate to be flat on ground initially
-         return placeholder; // Return placeholder if texture fails
-    }
+    const geometry = new THREE.PlaneGeometry(1, 1);
+    const material = new THREE.MeshBasicMaterial({
+        transparent: true,
+        side: THREE.DoubleSide
+    });
 
-    const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: true, depthWrite: true }); // Ensure depth testing is on
-    const sprite = new THREE.Sprite(material);
-    sprite.scale.set(2, 2, 1); // Adjust scale as needed
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.y = 0.5; // Half the height to align bottom with ground
 
-    // Add custom data for effects
-    sprite.userData.effects = {
-        flame: null,
-        driftParticles: null
-    };
-    // Create and attach flame immediately, but keep it hidden
-    sprite.userData.effects.flame = createFlame(playerId);
-    if (sprite.userData.effects.flame) {
-        sprite.add(sprite.userData.effects.flame); // Add flame as child of sprite
-        sprite.userData.effects.flame.visible = false; // Start hidden
-    }
+    getCharacterTexture(characterId, 'f')
+        .then(texture => {
+            if (texture) {
+                material.map = texture;
+                material.needsUpdate = true;
+            }
+        })
+        .catch(err => {
+            console.error(`Failed to load initial texture for player ${playerId}:`, err);
+        });
 
-    return sprite;
+    return mesh;
 }
 
 // --- Player Visual Effects --- 
@@ -2435,13 +2438,13 @@ function createFlame(playerId) {
     geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3)); // Single point for sprite
 
     const material = new THREE.SpriteMaterial({
-        map: flameTextures[0], // Start with first frame
-        color: 0xffffff, // White base color
+        map: flameTextures[0], 
+        color: 0xffffff, 
         transparent: true,
-        blending: THREE.AdditiveBlending, // Make flames bright
-        depthWrite: false, // <<< ADDED: Don't write depth
-        depthTest: false, // <<< ADDED: Don't test depth
-        renderOrder: 5 // <<< ADDED: Render flames on top
+        blending: THREE.AdditiveBlending, 
+        depthWrite: false, // Ensure
+        depthTest: false, // Ensure
+        renderOrder: 10 // <<< INCREASED Render Order
     });
 
     const sprite = new THREE.Sprite(material);
@@ -2493,13 +2496,13 @@ function createDriftParticles(playerId) {
 
     const particleMaterial = new THREE.PointsMaterial({
         size: DRIFT_PARTICLE_SIZE,
-        map: sparkTexture || textures['/Sprites/sparks/spark1.png'], // Fallback to spark1
+        map: sparkTexture || textures['/Sprites/sparks/spark1.png'], 
         sizeAttenuation: true,
         transparent: true,
-        blending: THREE.AdditiveBlending, // Additive blending for bright sparks
-        depthWrite: false, // <<< ADDED: Don't write depth
-        depthTest: false, // <<< ADDED: Don't test depth
-        renderOrder: 5 // <<< ADDED: Render sparks on top
+        blending: THREE.AdditiveBlending, 
+        depthWrite: false, // Ensure
+        depthTest: false, // Ensure
+        renderOrder: 10 // <<< INCREASED Render Order
     });
 
     const particles = new THREE.Points(geometry, particleMaterial);
@@ -2511,23 +2514,128 @@ function createDriftParticles(playerId) {
 // --- Global variable to store received editor tiles ---
 let currentCourseEditorTiles = [];
 
-// --- ADDED: Speed Lines Globals ---
-let speedLinesGeometry;
-let speedLinesMaterial;
-let speedLinesParticles;
-const MAX_SPEED_LINES = 500;
-const speedLineVertices = [];
-const speedLineVelocities = [];
-// --- End Speed Lines Globals ---
+const driftParticleYOffset = 0.1; // <<< Define Y offset for drift particles
 
-// --- Spark System Globals ---
-let sparkGeometry;
-let sparkMaterial;
-let sparkPoints;
-let sparkPositions;
-let sparkLifetimes;
-let sparkVelocities;
-const MAX_SPARKS = 1000; // Max concurrent spark particles
-let activeSparks = 0;
-// --- End Spark System Globals ---
+let speedLinesSystem;
+const MAX_SPEED_LINES = 100;
+const speedLineParticles = []; // { position, velocity, life }
+
+function initializeSpeedLines() {
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(MAX_SPEED_LINES * 3);
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+    const material = new THREE.PointsMaterial({
+        color: 0xffffff,
+        size: 0.05,
+        sizeAttenuation: true,
+        transparent: true,
+        opacity: 0.5,
+        depthWrite: false, // Ensure
+        depthTest: false, // Ensure
+        blending: THREE.AdditiveBlending,
+        renderOrder: 11 // <<< INCREASED Render Order (Above other particles)
+    });
+
+    speedLinesSystem = new THREE.Points(geometry, material);
+    scene.add(speedLinesSystem);
+
+    // Initialize particle pool
+    for (let i = 0; i < MAX_SPEED_LINES; i++) {
+        speedLineParticles.push({ 
+            position: new THREE.Vector3(), 
+            velocity: new THREE.Vector3(), 
+            life: 0 
+        });
+        // Set initial position offscreen
+         positions[i * 3 + 0] = 0;
+         positions[i * 3 + 1] = -10000;
+         positions[i * 3 + 2] = 0;
+    }
+}
+
+let lastSpeedLineUpdate = Date.now();
+const speedLineSpawnThreshold = 0.3; // Minimum velocity fraction to spawn
+const speedLineMaxSpawnRate = 5; // Max lines per frame at max speed
+const speedLineLife = 300; // ms
+const speedLineDistance = 15; // How far in front lines spawn
+const speedLineSpread = 8; // How wide the spawn area is
+
+function updateSpeedLines() {
+    if (!speedLinesSystem || !localPlayerId || !players[localPlayerId]) return;
+
+    const now = Date.now();
+    const delta = now - lastSpeedLineUpdate;
+    // lastSparkUpdate = now; // <<< TYPO: Corrected below
+    lastSpeedLineUpdate = now; // <<< FIXED: Use correct variable
+
+    const player = players[localPlayerId];
+    const velocity = player.velocity || 0;
+    const velocityFraction = Math.abs(velocity) / MAX_SPEED;
+    const isBoosting = now < boostEndTime;
+
+    // --- Spawn new particles --- 
+    let spawnCount = 0;
+    if (velocityFraction > speedLineSpawnThreshold) {
+        spawnCount = Math.floor(velocityFraction * speedLineMaxSpawnRate);
+        if (isBoosting) spawnCount = Math.min(MAX_SPEED_LINES, spawnCount * 3);
+    }
+
+    let spawnedThisFrame = 0;
+    for (let i = 0; i < MAX_SPEED_LINES && spawnedThisFrame < spawnCount; i++) {
+        if (speedLineParticles[i].life <= 0) {
+            // Activate particle
+            speedLineParticles[i].life = speedLineLife;
+            
+            // <<< FIXED: Spawn relative to PLAYER, oriented by CAMERA >>>
+            const forward = new THREE.Vector3();
+            camera.getWorldDirection(forward);
+            const right = new THREE.Vector3().crossVectors(camera.up, forward).normalize(); // Camera's right vector
+            const up = new THREE.Vector3().copy(camera.up);
+            
+            // Start at player position 
+            const playerPos = playerObjects[localPlayerId].position;
+            const spawnPos = playerPos.clone(); 
+            
+            // Offset forward slightly relative to camera view
+            spawnPos.addScaledVector(forward, speedLineDistance * 0.5); // Closer spawn
+            // Add spread based on camera right/up
+            spawnPos.addScaledVector(right, (Math.random() - 0.5) * speedLineSpread);
+            spawnPos.addScaledVector(up, (Math.random() - 0.5) * speedLineSpread * 0.5);
+
+            speedLineParticles[i].position.copy(spawnPos);
+            
+            // <<< FIXED: Velocity primarily AWAY from camera >>>
+             const velocityMagnitude = -1.0 - (velocityFraction * 1.0); // Faster lines
+             speedLineParticles[i].velocity.copy(forward).multiplyScalar(velocityMagnitude);
+             // Add slight player-direction influence?
+             // const playerForward = new THREE.Vector3(0, 0, -1).applyAxisAngle(THREE.Object3D.DEFAULT_UP, player.rotation.y);
+             // speedLineParticles[i].velocity.lerp(playerForward.multiplyScalar(velocityMagnitude), 0.1);
+            
+            spawnedThisFrame++;
+        }
+    }
+
+    // --- Update existing particles --- 
+    const positions = speedLinesSystem.geometry.attributes.position.array;
+    let aliveCount = 0;
+    for (let i = 0; i < MAX_SPEED_LINES; i++) {
+        if (speedLineParticles[i].life > 0) {
+            speedLineParticles[i].life -= delta;
+            if (speedLineParticles[i].life <= 0) {
+                positions[i * 3 + 1] = -10000; 
+            } else {
+                // Update position based on velocity
+                 speedLineParticles[i].position.addScaledVector(speedLineParticles[i].velocity, delta * 0.05); 
+                 positions[i * 3 + 0] = speedLineParticles[i].position.x;
+                 positions[i * 3 + 1] = speedLineParticles[i].position.y;
+                 positions[i * 3 + 2] = speedLineParticles[i].position.z;
+                 aliveCount++;
+            }
+        }
+    }
+
+    speedLinesSystem.geometry.attributes.position.needsUpdate = true;
+    speedLinesSystem.visible = aliveCount > 0;
+}
 
