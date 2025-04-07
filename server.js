@@ -58,6 +58,13 @@ const solidObstacleTypes = new Set([
     'tireswhite'
 ]);
 
+// Define constants for collision checks
+const PLAYER_HALF_WIDTH = 0.5; 
+const PLAYER_HALF_LENGTH = 0.5; 
+const OBSTACLE_HALF_SIZE = 0.9; // Previous: 0.8, makes obstacles 1.8x1.8 box
+const obstacleHalfWidth = OBSTACLE_HALF_SIZE;
+const obstacleHalfLength = OBSTACLE_HALF_SIZE;
+
 // --- Translation Function ---
 function translateEditorDataToCourseData(editorData) {
     if (!editorData || !Array.isArray(editorData.tiles)) {
@@ -469,7 +476,7 @@ function checkCollisions(gameState) {
             // Ensure obstacle position is valid FIRST
             // ... validation ...
             // Use a fixed hitbox for solid obstacles, adjust size as needed
-            const OBSTACLE_HALF_SIZE = 0.8; // Previous: 0.7, makes obstacles 1.6x1.6 box
+            const OBSTACLE_HALF_SIZE = 0.9; // Previous: 0.8, makes obstacles 1.8x1.8 box
             const obstacleHalfWidth = OBSTACLE_HALF_SIZE;
             const obstacleHalfLength = OBSTACLE_HALF_SIZE;
             
@@ -477,7 +484,7 @@ function checkCollisions(gameState) {
             console.log(`  [Check AABB] Player ${player.id} (Pos: ${player.position.x.toFixed(2)},${player.position.z.toFixed(2)}) vs Obstacle ${obstacle.type} (Pos: ${obstacle.x.toFixed(2)},${obstacle.z.toFixed(2)})`);
 
             // --- AABB Check --- 
-            const PLAYER_HALF_WIDTH = 0.4; 
+            const PLAYER_HALF_WIDTH = 0.5; 
             
             const playerMinX = player.position.x - PLAYER_HALF_WIDTH;
             const playerMaxX = player.position.x + PLAYER_HALF_WIDTH;
