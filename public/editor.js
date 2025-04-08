@@ -360,16 +360,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Event Listeners ---
-    canvas.addEventListener('click', (event) => {
+    canvas.addEventListener('mousedown', (event) => {
+        if (!selectedTileType) return;
+
         const rect = canvas.getBoundingClientRect();
-        const mouseX = event.clientX - rect.left;
-        const mouseY = event.clientY - rect.top;
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const mouseX = (event.clientX - rect.left) * scaleX;
+        const mouseY = (event.clientY - rect.top) * scaleY;
         const gridX = Math.floor(mouseX / TILE_SIZE);
         const gridY = Math.floor(mouseY / TILE_SIZE);
-        
+
         if (gridX >= 0 && gridX < GRID_WIDTH && gridY >= 0 && gridY < GRID_HEIGHT) {
-            handlePlacement(gridX, gridY, event);
-            drawCourse();
+            handlePlacement(gridX, gridY);
+            drawCourse(); // Redraw after placement
         }
     });
 
@@ -408,13 +412,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- Placement Logic ---
-    function handlePlacement(gridX, gridY, event) {
+    function handlePlacement(gridX, gridY) {
         const selectedItem = paletteItems.find(item => item.id === selectedTileType);
         if (!selectedItem) return;
 
-        // For elements, use exact mouse position instead of grid position
-        const exactX = event ? event.offsetX / TILE_SIZE : gridX;
-        const exactY = event ? event.offsetY / TILE_SIZE : gridY;
+        // Find existing tile/element
+        const tileIndex = courseData.tiles.findIndex(t => t.x === gridX && t.y === gridY);
+        const elementIndex = courseData.elements.findIndex(el => el.x === gridX && el.y === gridY);
 
         if (selectedItem.id === 'delete') {
             // Delete Tile (set back to grass)
@@ -423,40 +427,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 delete courseData.tiles[tileIndex].texture;
                 delete courseData.tiles[tileIndex].variant;
             }
-            // Delete Element - use a small radius for more precise deletion
-            const deleteRadius = 0.5; // Half a tile size
-            const elementToDelete = courseData.elements.findIndex(el => {
-                const dx = el.x - exactX;
-                const dy = el.y - exactY;
-                return Math.sqrt(dx * dx + dy * dy) < deleteRadius;
-            });
-            if (elementToDelete !== -1) {
-                courseData.elements.splice(elementToDelete, 1);
+            // Delete Element
+            if (elementIndex !== -1) {
+                courseData.elements.splice(elementIndex, 1);
             }
-            console.log(`Deleted content at (${exactX.toFixed(2)}, ${exactY.toFixed(2)})`);
+            console.log(`Deleted content at (${gridX}, ${gridY})`);
 
         } else if (selectedItem.type === 'tile') {
-            // Tiles still use grid positions
-            const tileIndex = courseData.tiles.findIndex(t => t.x === gridX && t.y === gridY);
             if (tileIndex !== -1) {
+                // Place road/finish line OVER grass/mud
                 courseData.tiles[tileIndex].type = selectedItem.id;
-                courseData.tiles[tileIndex].texture = selectedItem.texture;
-                courseData.tiles[tileIndex].variant = selectedItem.variant;
+                courseData.tiles[tileIndex].texture = selectedItem.texture; // e.g., 'road'
+                courseData.tiles[tileIndex].variant = selectedItem.variant; // e.g., 'h', 'ne'
                 console.log(`Placed tile ${selectedItem.id} at (${gridX}, ${gridY})`);
+                // Delete any element that might be underneath
+                if (elementIndex !== -1) courseData.elements.splice(elementIndex, 1);
             }
         } else if (selectedItem.type === 'element') {
-            // Elements use exact positions
-            courseData.elements.push({ 
-                x: exactX, 
-                y: exactY, 
-                type: selectedItem.id,
-                rotation: { y: 0 } // Add default rotation
-            });
-            console.log(`Placed element ${selectedItem.id} at (${exactX.toFixed(2)}, ${exactY.toFixed(2)})`);
+             // Allow placing elements only on non-road tiles?
+            // Or just draw them on top? Currently draws on top.
+            if (elementIndex !== -1) courseData.elements.splice(elementIndex, 1); // Remove existing element first
+            courseData.elements.push({ x: gridX, y: gridY, type: selectedItem.id });
+             console.log(`Placed element ${selectedItem.id} at (${gridX}, ${gridY})`);
         } else if (selectedItem.type === 'special' && selectedItem.id === 'start_pos') {
-            courseData.startPosition.x = gridX;
-            courseData.startPosition.y = gridY;
-            console.log(`Set start position to (${gridX}, ${gridY})`);
+             courseData.startPosition.x = gridX;
+             courseData.startPosition.y = gridY;
+             // TODO: Add way to set startPosition.direction
+             console.log(`Set start position to (${gridX}, ${gridY})`);
         }
     }
 

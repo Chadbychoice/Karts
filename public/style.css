@@ -27,11 +27,11 @@ body {
 
 #character-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr); /* 4 characters per row */
+    grid-template-columns: repeat(5, 1fr); /* 5 characters */
     gap: 20px;
     margin-top: 20px;
     width: 80%;
-    max-width: 800px; /* Adjusted for 4 columns */
+    max-width: 800px; /* Adjust as needed */
 }
 
 .character-slot {
