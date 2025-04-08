@@ -188,6 +188,22 @@ function preloadAssets() {
         { key: '/textures/stripedlineflip.png', type: 'texture' }
     ];
 
+    // Add grass textures to preload list
+    for (let i = 1; i <= 9; i++) {
+        assetsToLoad.push({ 
+            key: `/Sprites/grass/grass${i}.png`, 
+            type: 'texture' 
+        });
+    }
+
+    // Add mud textures to preload list
+    for (let i = 1; i <= 9; i++) {
+        assetsToLoad.push({ 
+            key: `/Sprites/mud/mud${i}.png`, 
+            type: 'texture' 
+        });
+    }
+
     // Add smoke textures to preload list
     for (let i = 1; i <= 7; i++) {
         assetsToLoad.push({ 
@@ -830,10 +846,16 @@ socket.on('updatePlayerPosition', (playerId, position, rotation, velocity) => { 
 
      // Store the received state (ground level X/Z)
      if (position) {
-        // CRITICAL: Only update X and Z from server. Keep local Y (visual height) separate.
+        // Store the ground-level position in the main player data
         players[playerId].position.x = position.x;
         players[playerId].position.z = position.z;
         // DO NOT update players[playerId].position.y here.
+
+        // If this is a remote player, store the target position for lerping
+        if (playerId !== localPlayerId && playerObjects[playerId]) {
+            const visualY = playerObjects[playerId].position.y; // Keep current visual Y
+            playerObjects[playerId].userData.targetPosition = new THREE.Vector3(position.x, visualY, position.z);
+        }
      }
      if (rotation) {
         players[playerId].rotation = rotation;
@@ -843,25 +865,23 @@ socket.on('updatePlayerPosition', (playerId, position, rotation, velocity) => { 
          players[playerId].velocity = velocity;
          console.log(`   Applied server velocity: ${velocity.toFixed(3)}`);
      } else if (playerId !== localPlayerId && velocity !== undefined && !isNaN(velocity)) {
-         // Optionally store velocity for remote players too (for interpolation/effects?)
+         // Store velocity for remote players too (for effects calculation)
          players[playerId].velocity = velocity; 
      }
     
-    // Apply update directly to visual object, ensuring correct Y position
-    if (playerObjects[playerId]) {
+    // Apply update directly to LOCAL player's visual object, ensuring correct Y position
+    if (playerId === localPlayerId && playerObjects[playerId]) {
          const sprite = playerObjects[playerId];
          if (position) {
-             // Apply visual position immediately, ALWAYS using calculated visual height
              const visualY = playerSpriteScale / 2; // Calculate the correct visual height
              sprite.position.set(
                  position.x, // Use X from server/update
                  visualY,    // Use calculated visual Y, ignore server Y
                  position.z  // Use Z from server/update
              );
-             // console.log(`---> Applied position correction to ${playerId}: X=${position.x.toFixed(2)}, Z=${position.z.toFixed(2)}, VisualY=${visualY.toFixed(2)}`); // Log Y application
          }
-         // Rotation is handled by sprite angle updates
     } 
+    // Remote player visuals are updated via lerping in the animate loop
 });
 
 // Listener for effect state updates from the server
@@ -2097,6 +2117,10 @@ function initializeRaceScene(initialPlayers, options) {
     // Initialize smoke system
     smokeSystem = new SmokeSystem(scene);
 
+    // Initialize ground particle systems
+    grassParticleSystem = new GroundParticleSystem(scene, 'grass');
+    mudParticleSystem = new GroundParticleSystem(scene, 'mud');
+
     // Show mobile controls if on a mobile device
     if (isMobileDevice()) {
         const mobileControls = document.getElementById('mobile-controls');
@@ -2160,118 +2184,127 @@ function animate() {
         animationFrameId = null; // Ensure loop stops if scene cleaned up
         return;
     };
-    // console.log(`[Animate Frame ${frameCount}] State: ${currentGameState}`); // Log animate loop runs
     animationFrameId = requestAnimationFrame(animate);
     frameCount++; // Increment frame counter
     const now = Date.now(); // Get current time for effects
     const delta = clock.getDelta();
 
-    // --- Update Remote Player Positions (Lerp) ---
+    // --- Update Remote Player Positions (Lerp) --- BEFORE calculating velocity
      for (const playerId in playerObjects) {
          if (playerId !== localPlayerId && playerObjects[playerId].userData.targetPosition) {
-             playerObjects[playerId].position.lerp(playerObjects[playerId].userData.targetPosition, lerpFactor);
+             const sprite = playerObjects[playerId];
+             // Initialize lastPosition if it doesn't exist
+             if (!sprite.userData.lastPosition) {
+                 sprite.userData.lastPosition = sprite.position.clone();
+             }
+             sprite.position.lerp(sprite.userData.targetPosition, lerpFactor);
          }
      }
 
-    // Only run driving logic if actually racing and local player exists
+    // --- Local Player Input & Update ---
     if (currentGameState === 'racing' && localPlayerId && players[localPlayerId]) {
         handleDrivingInput();
         sendLocalPlayerUpdate();
         
-        // <<< ADDED: Update Speedometer >>>
         const localVelocity = players[localPlayerId].velocity;
         if (speedometerElement && localVelocity !== undefined) {
-            // Multiply by a factor to make speed more readable (adjust as needed)
             const displaySpeed = Math.abs(localVelocity * 100).toFixed(0);
             speedometerElement.textContent = `Speed: ${displaySpeed}`;
         }
-        // <<< END ADDED >>>
     }
 
+    // --- Camera and Sprite Angles ---
     updateCameraPosition();
     updateAllSpriteAngles();
 
-    // --- Update Visual Effects for ALL players ---
+    // --- Update Visual Effects (Drift, Boost) for ALL players ---
     for (const playerId in playerObjects) {
         updateDriftParticles(playerId);
         updateBoostFlame(playerId, now);
     }
     
+    // --- Render Scene ---
     composer.render(); // Render via EffectComposer
 
-    // Update spark system if it exists
+    // --- Update Shared Effects (Sparks) ---
     if (sparkSystem) {
-        updateSharedSparks(); // Use the renamed function
+        updateSharedSparks();
     }
 
-    // --- Handle Smoke for ALL Players ---
-    // Reuse existing 'now' variable (already declared earlier in function)
-    
-    // Update smoke systems for all players
-    for (const playerId in playerObjects) {
-        const playerData = players[playerId];
+    // --- Handle Smoke & Ground Effects for ALL Players (AFTER position updates) ---
+    for (const playerId in players) {
+        const player = players[playerId];
         const sprite = playerObjects[playerId];
         
-        if (!playerData || !sprite) continue;
+        if (!player || !sprite) continue;
         
-        // Initialize smoke system if needed
-        if (!playerData.smokeSystem && scene) {
-            playerData.smokeSystem = new SmokeSystem(scene);
+        // --- Smoke System Update & Spawning ---
+        if (!player.smokeSystem && scene) {
+            player.smokeSystem = new SmokeSystem(scene);
+        }
+        if (player.smokeSystem) {
+            player.smokeSystem.update(delta);
+            // (Smoke spawning logic based on movement and ground type remains here...)
+            // ... existing smoke spawn logic ...
+        }
+
+        // --- Ground Particle Spawning ---
+        let velocity;
+        let actualDt = delta > 0 ? delta : 0.016; // Use actual delta if > 0, else fallback
+
+        if (playerId === localPlayerId) {
+            velocity = player.velocity; 
+        } else {
+            // Calculate velocity for remote players based on the LERPED position change
+            if (sprite.userData.lastPosition) { // Ensure lastPosition exists
+                const dx = sprite.position.x - sprite.userData.lastPosition.x;
+                const dz = sprite.position.z - sprite.userData.lastPosition.z;
+                // Avoid division by zero or tiny delta
+                velocity = Math.sqrt(dx*dx + dz*dz) / actualDt; 
+            }
         }
         
-        // Update existing smoke particles
-        if (playerData.smokeSystem) {
-            playerData.smokeSystem.update(delta);
-            
-            // Only add smoke if player is moving
-            let isMoving = false;
-            
-            if (playerId === localPlayerId) {
-                // For local player, check velocity directly
-                isMoving = playerData.velocity && playerData.velocity > 0.05;
-            } else {
-                // For remote players, check if they have moved recently
-                if (sprite.userData.lastPosition && sprite.position) {
-                    const dx = sprite.position.x - sprite.userData.lastPosition.x;
-                    const dz = sprite.position.z - sprite.userData.lastPosition.z;
-                    const distanceSq = dx*dx + dz*dz;
-                    isMoving = distanceSq > 0.001; // Small threshold to detect movement
-                }
-                
-                // Update last position
-                sprite.userData.lastPosition = {
-                    x: sprite.position.x,
-                    y: sprite.position.y,
-                    z: sprite.position.z
+        // Spawn particles if moving and velocity is valid
+        if (velocity && Math.abs(velocity) > 0.05) {
+            const currentPosition = sprite.position; // Use interpolated position
+            const groundType = getLocalGroundType(currentPosition.x, currentPosition.z);
+            const isOnRoad = isPlayerOnRoad(currentPosition); // Check if on road
+
+            if (isOnRoad && player.smokeSystem) { // << Check ON road
+                // --- Spawn Smoke --- 
+                const angle = player.rotation?.y || 0;
+                const offsetX = Math.sin(angle) * -0.5;
+                const offsetZ = Math.cos(angle) * -0.5;
+                const smokePos = {
+                    x: currentPosition.x + offsetX,
+                    y: 0.2, // Low height
+                    z: currentPosition.z + offsetZ
                 };
-            }
-            
-            if (isMoving) {
-                // Check if player is on a road tile
-                const isOnRoad = isPlayerOnRoad(sprite.position);
-                
-                if (isOnRoad) {
-                    // Get rotation angle (or default to 0)
-                    const angle = playerData.rotation?.y || 0;
-                    
-                    // Calculate smoke position directly with explicit offset
-                    const offsetX = Math.sin(angle) * -0.5; // Half unit behind in X direction
-                    const offsetZ = Math.cos(angle) * -0.5; // Half unit behind in Z direction
-                    
-                    // Create position with fixed height
-                    const smokePos = {
-                        x: Number(sprite.position.x) + offsetX,
-                        y: 0.2, // Low height above ground
-                        z: Number(sprite.position.z) + offsetZ
-                    };
-                    
-                    // Double-check for NaN
-                    if (!isNaN(smokePos.x) && !isNaN(smokePos.z)) {
-                        playerData.smokeSystem.spawnSmoke(smokePos, playerData.velocity || 0.1);
-                    }
+                if (!isNaN(smokePos.x) && !isNaN(smokePos.z)) {
+                    player.smokeSystem.spawnSmoke(smokePos, velocity);
+                }
+            } else if (!isOnRoad) { // << Check NOT on road (grass/mud)
+                // --- Spawn Ground Particles ---
+                if (groundType === 'grass' && grassParticleSystem) {
+                    grassParticleSystem.spawnParticles(currentPosition, playerId, velocity);
+                } else if (groundType === 'mud' && mudParticleSystem) {
+                    mudParticleSystem.spawnParticles(currentPosition, playerId, velocity);
                 }
             }
         }
+        
+        // --- IMPORTANT: Update lastPosition AFTER using it for velocity calc ---
+        if (playerId !== localPlayerId) {
+            sprite.userData.lastPosition = sprite.position.clone();
+        }
+    }
+
+    // Update ground particle systems (lifetime, movement, etc.)
+    if (grassParticleSystem) {
+        grassParticleSystem.update(delta);
+    }
+    if (mudParticleSystem) {
+        mudParticleSystem.update(delta);
     }
 }
 
@@ -2504,6 +2537,16 @@ function cleanupRaceScene() {
     // Remove course objects 
     // Fallback: Remove meshes/sprites potentially added by createCourseFromData or createCourse
     // ... existing code ...
+
+    if (grassParticleSystem) {
+        grassParticleSystem.clear();
+        grassParticleSystem = null;
+    }
+    
+    if (mudParticleSystem) {
+        mudParticleSystem.clear();
+        mudParticleSystem = null;
+    }
 }
 
 // --- Spark Effect Setup ---
@@ -2915,5 +2958,191 @@ socket.on('playerCollision', (collisionPoint) => {
 
 // --- Race Initialization ---
 // ... existing code ...
+
+// Add after SmokeSystem class
+class GroundParticle {
+    constructor(position, texture, type) {
+        if (!position || typeof position.x !== 'number' || typeof position.z !== 'number' ||
+            isNaN(position.x) || isNaN(position.z)) {
+            console.error('Invalid position for ground particle:', position);
+            position = { x: 0, y: 0.1, z: 0 };
+        }
+    
+        // Increase size for better visibility
+        const size = 1.0 + Math.random() * 0.5;
+        const geometry = new THREE.PlaneGeometry(size, size);
+        const material = new THREE.MeshBasicMaterial({
+            map: texture,
+            transparent: true,
+            opacity: 0.8,
+            depthWrite: false,
+            depthTest: true,
+            blending: THREE.NormalBlending,
+            side: THREE.DoubleSide
+        });
+        
+        this.mesh = new THREE.Mesh(geometry, material);
+        const x = position.x;
+        const y = typeof position.y === 'number' ? position.y : 0.1;
+        const z = position.z;
+        
+        this.mesh.position.set(x, y, z);
+        
+        // Make particles face the camera
+        this.mesh.userData.isBillboard = true;
+        
+        // Slower movement for ground particles
+        this.velocity = new THREE.Vector3(
+            (Math.random() - 0.5) * 0.1, // Increased spread
+            0.05 + Math.random() * 0.05, // Small upward velocity
+            (Math.random() - 0.5) * 0.1  // Increased spread
+        );
+        
+        this.life = 1.0;
+        this.fadeSpeed = 0.8 + Math.random() * 0.4; // Faster fade
+        
+        // Add random rotation
+        this.rotationSpeed = (Math.random() - 0.5) * 2;
+        this.mesh.rotation.z = Math.random() * Math.PI * 2;
+    }
+    
+    update(delta) {
+        this.life -= this.fadeSpeed * delta;
+        this.mesh.position.add(this.velocity.clone().multiplyScalar(delta * 60));
+        
+        // Update rotation
+        this.mesh.rotation.z += this.rotationSpeed * delta;
+        
+        // Make particle always face camera
+        if (this.mesh.userData.isBillboard && camera) {
+            this.mesh.quaternion.copy(camera.quaternion);
+        }
+        
+        // Scale down as it fades
+        const scale = this.life * 0.8 + 0.2;
+        this.mesh.scale.set(scale, scale, scale);
+        
+        this.mesh.material.opacity = this.life;
+        return this.life > 0;
+    }
+}
+
+class GroundParticleSystem {
+    constructor(scene, type) {
+        this.scene = scene;
+        this.type = type; // 'grass' or 'mud'
+        this.particles = [];
+        this.lastSpawnTimes = {}; // Track last spawn time per player
+        this.baseSpawnInterval = 400; // Base interval of 400ms
+        this.fastSpawnInterval = 200; // Fast interval of 200ms
+        this.speedThreshold = 40; // Speed threshold for faster spawning
+        
+        // Cache textures
+        this.textures = [];
+        for (let i = 1; i <= 9; i++) {
+            const texturePath = `/Sprites/${type}/${type}${i}.png`;
+            if (textures[texturePath]) {
+                const texture = textures[texturePath];
+                // Set texture properties
+                texture.magFilter = THREE.NearestFilter;
+                texture.minFilter = THREE.NearestFilter;
+                texture.encoding = THREE.sRGBEncoding;
+                this.textures.push(texture);
+                console.log(`[${type}] Loaded texture: ${texturePath}`);
+            } else {
+                console.warn(`[${type}] Missing texture: ${texturePath}`);
+            }
+        }
+        
+        console.log(`[${type}] GroundParticleSystem initialized with ${this.textures.length} textures`);
+    }
+    
+    spawnParticles(position, playerId, velocity) {
+        if (this.textures.length === 0) {
+            console.warn(`[${this.type}] Cannot spawn particles: No textures loaded`);
+            return;
+        }
+        
+        const now = Date.now();
+        if (!this.lastSpawnTimes[playerId]) {
+            this.lastSpawnTimes[playerId] = 0;
+        }
+
+        // Determine spawn interval based on velocity
+        const speed = Math.abs(velocity);
+        const spawnInterval = speed > this.speedThreshold ? this.fastSpawnInterval : this.baseSpawnInterval;
+        
+        if (now - this.lastSpawnTimes[playerId] < spawnInterval) {
+            return;
+        }
+        
+        this.lastSpawnTimes[playerId] = now;
+        
+        // Spawn 3-5 particles
+        const numParticles = 3 + Math.floor(Math.random() * 3);
+        
+        for (let i = 0; i < numParticles; i++) {
+            // Spawn around the wheels with more spread
+            const side = i % 2 === 0 ? 1 : -1; // Alternate sides for wheels
+            const front = i < 2 ? 0.5 : -0.5; // Front and back wheels
+            
+            const offsetX = side * 0.8 + (Math.random() - 0.5) * 0.4;
+            const offsetZ = front + (Math.random() - 0.5) * 0.4;
+            
+            const particlePos = {
+                x: position.x + offsetX,
+                y: 0.1,
+                z: position.z + offsetZ
+            };
+            
+            const texture = this.textures[Math.floor(Math.random() * this.textures.length)];
+            const particle = new GroundParticle(particlePos, texture, this.type);
+            this.scene.add(particle.mesh);
+            this.particles.push(particle);
+        }
+    }
+    
+    update(delta) {
+        let activeCount = 0;
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+            const particle = this.particles[i];
+            const isAlive = particle.update(delta);
+            
+            if (!isAlive) {
+                this.scene.remove(particle.mesh);
+                if (particle.mesh.material) {
+                    particle.mesh.material.dispose();
+                }
+                if (particle.mesh.geometry) {
+                    particle.mesh.geometry.dispose();
+                }
+                this.particles.splice(i, 1);
+            } else {
+                activeCount++;
+            }
+        }
+        if (activeCount > 0) {
+            console.log(`[${this.type}] Active particles: ${activeCount}`);
+        }
+    }
+    
+    clear() {
+        console.log(`[${this.type}] Clearing ${this.particles.length} particles`);
+        for (const particle of this.particles) {
+            this.scene.remove(particle.mesh);
+            if (particle.mesh.material) {
+                particle.mesh.material.dispose();
+            }
+            if (particle.mesh.geometry) {
+                particle.mesh.geometry.dispose();
+            }
+        }
+        this.particles = [];
+    }
+}
+
+// Add after other system declarations
+let grassParticleSystem;
+let mudParticleSystem;
 
 
