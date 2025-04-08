@@ -204,57 +204,57 @@ async function loadCourses() {
         console.error("Error loading courses:", error);
         if (Object.keys(courses).length === 0) {
             console.warn("No courses loaded, ensure courses directory exists and is readable.");
-            courses['test'] = {
-                id: 'test',
-                name: "Default Test Track",
+            courses['sausage'] = {
+                id: 'sausage',
+                name: "Sausage Track",
                 planeSize: { width: 100, height: 100 },
                 startPositions: [{ x: 0, y: 0, z: 0 }],
                 startRotation: { y: 0 },
                 terrain: [{ type: 'grass', x: 0, y: 0, z: 0, width: 100, length: 100 }],
                 obstacles: [], decorations: [], checkpoints: []
             };
-            console.log("Created default 'test' course.");
+            console.log("Created default 'sausage' course.");
         }
-    }
-    if (!courses['test']) {
-        courses['test'] = {
-            id: 'test',
-            name: "Default Test Track",
-            planeSize: { width: 100, height: 100 },
-            startPositions: [{ x: 0, y: 0, z: 0 }],
-            startRotation: { y: 0 },
-            terrain: [{ type: 'grass', x: 0, y: 0, z: 0, width: 100, length: 100 }],
-            obstacles: [], decorations: [], checkpoints: []
-        };
-        console.log("Created default 'test' course.");
-    }
-    // Ensure 'test' course exists if nothing else loaded (create a default translated structure)
-    if (Object.keys(courses).length === 0 || !courses['test']) {
-        console.warn("No valid courses loaded or 'test' missing, creating default.");
-         const defaultEditorData = {
-            name: 'test',
-            startPosition: { x: EDITOR_GRID_WIDTH / 2, y: EDITOR_GRID_HEIGHT - 2, direction: 0 },
-            tiles: Array.from({ length: EDITOR_GRID_WIDTH * EDITOR_GRID_HEIGHT }, (_, i) => ({
-                x: i % EDITOR_GRID_WIDTH,
-                y: Math.floor(i / EDITOR_GRID_WIDTH),
-                type: 'grass'
-            })),
-            elements: []
-        };
-        const defaultTranslated = translateEditorDataToCourseData(defaultEditorData);
-         if (defaultTranslated) {
-             // Store original default tiles
-             defaultTranslated.rawEditorTiles = defaultEditorData.tiles;
-             courses['test'] = defaultTranslated;
-             console.log("Created default 'test' course from translated structure.");
-         } else {
-              console.error("CRITICAL: Failed to create default translated 'test' course!");
-               // If even default fails, create a super minimal fallback
-               courses['test'] = {
-                  id: 'test', name: 'Minimal Fallback', startPositions: [{x:0,y:0,z:0}], startRotation: {y:0},
-                  terrain: [{type:'grass', x:0, y:0, z:0, width: 20, length: 20}], road:[], obstacles:[], decorations:[], checkpoints:[]
-               };
-         }
+        if (!courses['sausage']) {
+            courses['sausage'] = {
+                id: 'sausage',
+                name: "Sausage Track",
+                planeSize: { width: 100, height: 100 },
+                startPositions: [{ x: 0, y: 0, z: 0 }],
+                startRotation: { y: 0 },
+                terrain: [{ type: 'grass', x: 0, y: 0, z: 0, width: 100, length: 100 }],
+                obstacles: [], decorations: [], checkpoints: []
+            };
+            console.log("Created default 'sausage' course.");
+        }
+        // Ensure 'sausage' course exists if nothing else loaded (create a default translated structure)
+        if (Object.keys(courses).length === 0 || !courses['sausage']) {
+            console.warn("No valid courses loaded or 'sausage' missing, creating default.");
+             const defaultEditorData = {
+                name: 'sausage',
+                startPosition: { x: EDITOR_GRID_WIDTH / 2, y: EDITOR_GRID_HEIGHT - 2, direction: 0 },
+                tiles: Array.from({ length: EDITOR_GRID_WIDTH * EDITOR_GRID_HEIGHT }, (_, i) => ({
+                    x: i % EDITOR_GRID_WIDTH,
+                    y: Math.floor(i / EDITOR_GRID_WIDTH),
+                    type: 'grass'
+                })),
+                elements: []
+            };
+            const defaultTranslated = translateEditorDataToCourseData(defaultEditorData);
+             if (defaultTranslated) {
+                 // Store original default tiles
+                 defaultTranslated.rawEditorTiles = defaultEditorData.tiles;
+                 courses['sausage'] = defaultTranslated;
+                 console.log("Created default 'sausage' course from translated structure.");
+             } else {
+                  console.error("CRITICAL: Failed to create default translated 'sausage' course!");
+                   // If even default fails, create a super minimal fallback
+                   courses['sausage'] = {
+                      id: 'sausage', name: 'Minimal Fallback', startPositions: [{x:0,y:0,z:0}], startRotation: {y:0},
+                      terrain: [{type:'grass', x:0, y:0, z:0, width: 20, length: 20}], road:[], obstacles:[], decorations:[], checkpoints:[]
+                   };
+             }
+        }
     }
 }
 
@@ -310,7 +310,7 @@ const gameState = {
     state: 'character-selection',
     players: {},
     readyPlayers: new Set(),
-    currentCourse: 'untestable'
+    currentCourse: 'sausage'
 };
 
 // Add collision detection
@@ -576,8 +576,8 @@ io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
 
     if (!courses[gameState.currentCourse]) {
-        console.warn(`Current course '${gameState.currentCourse}' not found, switching to 'test'.`);
-        gameState.currentCourse = 'test';
+        console.warn(`Current course '${gameState.currentCourse}' not found, switching to 'sausage'.`);
+        gameState.currentCourse = 'sausage';
     }
 
     const currentValidCourse = courses[gameState.currentCourse];
