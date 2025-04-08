@@ -2577,7 +2577,7 @@ function createSparksAtPoint(origin, intensity = 0.5, range = 1.0) {
     }
 
     const positions = sparkSystem.geometry.attributes.position;
-    const numSparks = Math.floor(3 + intensity * 5);
+    const numSparks = 1; // Always spawn exactly 1 spark
     
     for (let i = 0; i < numSparks; i++) {
         let particleIndex = -1;
@@ -2590,14 +2590,14 @@ function createSparksAtPoint(origin, intensity = 0.5, range = 1.0) {
         if (particleIndex === -1) continue;
 
         const particle = sparkParticles[particleIndex];
-        particle.life = SPARK_LIFESPAN * 0.6; // Slightly increased lifespan for longer travel
+        particle.life = SPARK_LIFESPAN * 0.6; // Restored to 0.6 for longer duration
         
         const angle = Math.random() * Math.PI * 2;
-        const speed = 0.04 + Math.random() * 0.08 * intensity; // Slightly increased speed
+        const speed = 0.05 + Math.random() * 0.1 * intensity; // Increased speed
         particle.velocity.set(
-            Math.cos(angle) * speed * range * 0.6, // Slightly increased horizontal spread
-            0.05 + Math.random() * 0.08 * intensity, // Increased upward velocity
-            Math.sin(angle) * speed * range * 0.6  // Slightly increased horizontal spread
+            Math.cos(angle) * speed * range * 0.8, // Increased spread to 0.8
+            0.06 + Math.random() * 0.1 * intensity, // Increased upward velocity
+            Math.sin(angle) * speed * range * 0.8  // Increased spread to 0.8
         );
 
         positions.array[particleIndex * 3] = origin.x;
@@ -2616,16 +2616,16 @@ socket.on('playerCollision', (collisionPoint) => {
         return;
     }
     const randomOffset = {
-        x: (Math.random() - 0.5) * 0.2,
+        x: (Math.random() - 0.5) * 0.25, // Increased from 0.15 to 0.25
         y: 0,
-        z: (Math.random() - 0.5) * 0.2
+        z: (Math.random() - 0.5) * 0.25  // Increased from 0.15 to 0.25
     };
     const sparkPoint = {
         x: collisionPoint.x + randomOffset.x,
-        y: collisionPoint.y + 0.6, // Increased spawn height from 0.3 to 0.6
+        y: collisionPoint.y + 0.7, // Increased from 0.5 to 0.7
         z: collisionPoint.z + randomOffset.z
     };
-    createSparksAtPoint(sparkPoint, 0.5, 0.8); // Slightly increased range from 0.7 to 0.8
+    createSparksAtPoint(sparkPoint, 0.6, 0.9); // Increased intensity from 0.4 to 0.6, range from 0.6 to 0.9
 });
 
 function updateSharedSparks() {
