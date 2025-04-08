@@ -387,6 +387,12 @@ function showCharacterSelection() {
     const mobileControls = document.getElementById('mobile-controls');
     mobileControls.style.display = 'none';
     
+    // Show mobile select button if on mobile
+    const mobileSelectBtn = document.getElementById('mobile-select-btn');
+    if (mobileSelectBtn && isMobileDevice()) {
+        mobileSelectBtn.style.display = 'block';
+    }
+    
     // Set up the character selection UI
     setupCharacterSelection();
     
@@ -399,10 +405,26 @@ function showCharacterSelection() {
 // Initialize mobile controls if on a mobile device
 function initializeMobileControls() {
     const mobileControls = document.getElementById('mobile-controls');
+    const mobileSelectBtn = document.getElementById('mobile-select-btn');
     
     if (isMobileDevice()) {
         console.log("Mobile device detected, initializing touch controls");
         mobileControls.style.display = 'block';
+        
+        // Also show the mobile character selection button
+        if (mobileSelectBtn) {
+            mobileSelectBtn.style.display = 'block';
+            
+            // Add event listener for character selection
+            mobileSelectBtn.addEventListener('click', () => {
+                confirmCharacterSelection();
+            });
+            
+            mobileSelectBtn.addEventListener('touchstart', (e) => {
+                e.preventDefault(); // Prevent scrolling
+                confirmCharacterSelection();
+            });
+        }
         
         // Setup touch event listeners
         const leftBtn = document.getElementById('left-btn');
@@ -483,6 +505,9 @@ function initializeMobileControls() {
         });
     } else {
         mobileControls.style.display = 'none';
+        if (mobileSelectBtn) {
+            mobileSelectBtn.style.display = 'none';
+        }
     }
 }
 
@@ -670,9 +695,21 @@ function confirmCharacterSelection() {
     const selectedId = characterIds[selectedCharacterIndex];
     console.log(`Character selected: ${selectedId} (${characters[selectedId].name})`);
     socket.emit('playerSelectCharacter', selectedId);
-    characterSelectionOverlay.style.display = 'none'; // Hide selection screen
-    waitingScreenOverlay.style.display = 'block'; // Show waiting screen
-    stopCharacterRotation(null, null); // Stop all rotation animations when confirmed
+    
+    // Hide character selection screen
+    characterSelectionOverlay.style.display = 'none'; 
+    
+    // Hide mobile select button if visible
+    const mobileSelectBtn = document.getElementById('mobile-select-btn');
+    if (mobileSelectBtn) {
+        mobileSelectBtn.style.display = 'none';
+    }
+    
+    // Show waiting screen
+    waitingScreenOverlay.style.display = 'block'; 
+    
+    // Clean up character rotation animations and event listeners
+    stopCharacterRotation(null, null);
     document.removeEventListener('keydown', handleCharacterSelectionInput);
 }
 
@@ -718,6 +755,12 @@ socket.on('updateGameState', (state, serverPlayers, options) => {
         // Make character selection invisible
         characterSelectionOverlay.style.display = 'none';
         waitingScreenOverlay.style.display = 'none';
+        
+        // Hide mobile select button
+        const mobileSelectBtn = document.getElementById('mobile-select-btn');
+        if (mobileSelectBtn) {
+            mobileSelectBtn.style.display = 'none';
+        }
         
         // If scene was hidden, make it visible again
         if (isSceneInitialized && !scene.visible) {

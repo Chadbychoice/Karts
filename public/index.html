@@ -53,6 +53,26 @@
             border-color: #fff;
         }
         
+        /* Mobile Selection Button */
+        .mobile-select-button {
+            display: none; /* Hidden by default, shown via JS on mobile */
+            margin-top: 20px;
+            padding: 12px 30px;
+            background-color: rgba(0, 255, 0, 0.5);
+            color: white;
+            border-radius: 5px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
+            border: 2px solid rgba(255, 255, 255, 0.7);
+        }
+        
+        .mobile-select-button:active {
+            background-color: rgba(0, 255, 0, 0.8);
+        }
+        
         /* Waiting Screen Styles */
         #waiting-screen {
             display: none;
@@ -141,6 +161,7 @@
             <h2>Choose Your Racer</h2>
             <div id="character-grid"></div>
             <div id="selected-character-name"></div>
+            <div id="mobile-select-btn" class="mobile-select-button">SELECT</div>
         </div>
         
         <!-- Waiting Screen -->
