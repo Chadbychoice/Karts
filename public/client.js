@@ -204,53 +204,48 @@ function preloadAssets() {
         });
     });
 
-    let assetsLoaded = 0;
-    // Preload spark textures
-    const sparkTexturePaths = [];
+    // Add spark textures to preload list
     for (let i = 1; i <= 5; i++) {
-        sparkTexturePaths.push(`/Sprites/sparks/spark${i}.png`);
+        assetsToLoad.push({
+            key: `/Sprites/sparks/spark${i}.png`,
+            type: 'texture'
+        });
     }
 
-    const totalAssets = assetsToLoad.length + 7 + sparkTexturePaths.length + 7; // Update total for smoke textures
+    let assetsLoaded = 0;
+    const totalAssets = assetsToLoad.length + 7; // Just flame textures remaining in total
 
     const checkAllAssetsLoaded = () => {
         assetsLoaded++;
         console.log(`Assets loaded: ${assetsLoaded}/${totalAssets}`);
         if (assetsLoaded === totalAssets) {
             console.log("All essential assets preloaded.");
-            // You could potentially enable UI or trigger something here
         }
     };
 
-    // Preload course textures
+    // Preload all textures including sparks
     assetsToLoad.forEach(asset => {
         if (asset.type === 'texture') {
             textures[asset.key] = textureLoader.load(
                 asset.key,
-                (tex) => { // onLoad
+                (tex) => {
                     tex.magFilter = THREE.NearestFilter;
                     tex.minFilter = THREE.NearestFilter;
-                    console.log(`Loaded course texture: ${asset.key}`);
+                    console.log(`Loaded texture: ${asset.key}`);
+                    // If it's a spark texture, add it to sparkTexturesLoaded array
+                    if (asset.key.includes('/sparks/spark')) {
+                        sparkTexturesLoaded.push(tex);
+                        console.log(`Added spark texture to sparkTexturesLoaded: ${asset.key}`);
+                    }
                     checkAllAssetsLoaded();
                 },
-                undefined, // onProgress
-                (err) => { // onError
-                    console.error(`Failed to load course texture: ${asset.key}`, err);
-                    checkAllAssetsLoaded(); // Still count it as "handled"
+                undefined,
+                (err) => {
+                    console.error(`Failed to load texture: ${asset.key}`, err);
+                    checkAllAssetsLoaded();
                 }
             );
         }
-        // Add handlers for other asset types (models, sounds) here later
-    });
-
-    // Preload spark textures into the global textures object
-    sparkTexturePaths.forEach(path => {
-        textures[path] = textureLoader.load(
-            path,
-            (tex) => { tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; checkAllAssetsLoaded(); },
-            undefined,
-            (err) => { console.error(`Failed to load spark texture: ${path}`, err); checkAllAssetsLoaded(); }
-        );
     });
 
     // Preload flame textures
@@ -261,12 +256,12 @@ function preloadAssets() {
             (tex) => {
                 tex.magFilter = THREE.NearestFilter;
                 tex.minFilter = THREE.NearestFilter;
-                checkAllAssetsLoaded(); // <<< Call checker on flame load
+                checkAllAssetsLoaded();
             },
             undefined,
             (err) => {
                 console.error(`Failed to load flame texture: ${path}`, err);
-                checkAllAssetsLoaded(); // <<< Call checker on flame error
+                checkAllAssetsLoaded();
             }
         );
     }
@@ -275,9 +270,9 @@ function preloadAssets() {
     particlesMaterial = new THREE.PointsMaterial({
          color: 0xffffff,
          size: 0.08,
-         depthTest: false,  // Don't check depth buffer
-         depthWrite: false, // Don't write to depth buffer
-         transparent: true // Ensure transparency works correctly
+         depthTest: false,
+         depthWrite: false,
+         transparent: true
     });
 }
 
@@ -1989,17 +1984,21 @@ function createCourse(courseData) {
 }
 function initializeSharedSparkSystem() { 
     console.log("Initializing Shared Spark System...");
+    console.log("Number of spark textures loaded:", sparkTexturesLoaded.length);
+    
     // Cache loaded spark textures (ensure textures are preloaded)
     for (let i = 1; i <= 5; i++) {
         const path = `/Sprites/sparks/spark${i}.png`;
         if (textures[path]) {
             sparkTexturesLoaded.push(textures[path]);
+            console.log(`Added spark texture ${i} to sparkTexturesLoaded`);
         } else {
             console.warn(`Spark texture not preloaded: ${path}`);
         }
     }
+    
     if (sparkTexturesLoaded.length === 0) {
-        console.warn("No spark textures loaded, cannot initialize spark system.");
+        console.error("No spark textures loaded, cannot initialize spark system.");
         return;
     }
 
@@ -2012,21 +2011,23 @@ function initializeSharedSparkSystem() {
     sparkGeometry.setDrawRange(0, 0); // Initially draw nothing
 
     const sparkMaterial = new THREE.PointsMaterial({
-        size: 0.6, // Adjusted size
-        map: sparkTexturesLoaded[0], // Default map, will be updated per spark maybe?
+        size: 1.2, // Increased size for better visibility
+        map: sparkTexturesLoaded[0],
         transparent: true,
         alphaTest: 0.01,
         depthWrite: false,
-        blending: THREE.AdditiveBlending, 
+        blending: THREE.AdditiveBlending,
         sizeAttenuation: true,
-        vertexColors: false // Not using vertex colors here
+        vertexColors: false
     });
 
     sparkSystem = new THREE.Points(sparkGeometry, sparkMaterial);
-    sparkSystem.frustumCulled = false; // Important for particles
+    sparkSystem.frustumCulled = false;
     scene.add(sparkSystem);
+    console.log("Added spark system to scene");
 
     // Initialize particle data pool
+    sparkParticles = [];
     for (let i = 0; i < MAX_SPARKS; i++) {
         sparkParticles.push({ 
             life: 0, 
@@ -2034,7 +2035,7 @@ function initializeSharedSparkSystem() {
             baseSize: 0 
         });
     }
-    console.log("Shared Spark System Initialized.");
+    console.log("Initialized spark particle pool with", MAX_SPARKS, "particles");
 }
 
 // --- Race Initialization ---
@@ -2527,12 +2528,88 @@ const sparkTexturesLoaded = [];
 
 // RENAMED and MODIFIED Function (Remains here)
 function createSparksAtPoint(origin, intensity = 0.5, range = 1.0) {
-// ... function body ...
+    if (!sparkSystem || sparkTexturesLoaded.length === 0) {
+        console.error('Cannot create sparks - system not initialized');
+        return;
+    }
+
+    const positions = sparkSystem.geometry.attributes.position;
+    const numSparks = Math.floor(3 + intensity * 5);
+    
+    for (let i = 0; i < numSparks; i++) {
+        let particleIndex = -1;
+        for (let j = 0; j < MAX_SPARKS; j++) {
+            if (sparkParticles[j].life <= 0) {
+                particleIndex = j;
+                break;
+            }
+        }
+        if (particleIndex === -1) continue;
+
+        const particle = sparkParticles[particleIndex];
+        particle.life = SPARK_LIFESPAN * 0.6; // Slightly increased lifespan for longer travel
+        
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 0.04 + Math.random() * 0.08 * intensity; // Slightly increased speed
+        particle.velocity.set(
+            Math.cos(angle) * speed * range * 0.6, // Slightly increased horizontal spread
+            0.05 + Math.random() * 0.08 * intensity, // Increased upward velocity
+            Math.sin(angle) * speed * range * 0.6  // Slightly increased horizontal spread
+        );
+
+        positions.array[particleIndex * 3] = origin.x;
+        positions.array[particleIndex * 3 + 1] = origin.y;
+        positions.array[particleIndex * 3 + 2] = origin.z;
+    }
+
+    positions.needsUpdate = true;
+    sparkSystem.geometry.setDrawRange(0, MAX_SPARKS);
 }
 
-// RENAMED Function (Remains here)
+// Update the collision event handler
+socket.on('playerCollision', (collisionPoint) => {
+    if (!sparkSystem || sparkTexturesLoaded.length === 0) {
+        console.error('Spark system not ready! sparkSystem:', !!sparkSystem, 'textures loaded:', sparkTexturesLoaded.length);
+        return;
+    }
+    const randomOffset = {
+        x: (Math.random() - 0.5) * 0.2,
+        y: 0,
+        z: (Math.random() - 0.5) * 0.2
+    };
+    const sparkPoint = {
+        x: collisionPoint.x + randomOffset.x,
+        y: collisionPoint.y + 0.6, // Increased spawn height from 0.3 to 0.6
+        z: collisionPoint.z + randomOffset.z
+    };
+    createSparksAtPoint(sparkPoint, 0.5, 0.8); // Slightly increased range from 0.7 to 0.8
+});
+
 function updateSharedSparks() {
-// ... function body ...
+    if (!sparkSystem) return;
+
+    const positions = sparkSystem.geometry.attributes.position;
+    let activeCount = 0;
+
+    for (let i = 0; i < MAX_SPARKS; i++) {
+        const particle = sparkParticles[i];
+        if (particle.life > 0) {
+            positions.array[i * 3] += particle.velocity.x;
+            positions.array[i * 3 + 1] += particle.velocity.y;
+            positions.array[i * 3 + 2] += particle.velocity.z;
+
+            // Increased gravity effect for faster falloff
+            particle.velocity.y -= 0.008; // Increased from 0.005 to 0.008
+
+            particle.life--;
+            activeCount++;
+        } else {
+            positions.array[i * 3 + 1] = -10000;
+        }
+    }
+
+    positions.needsUpdate = true;
+    sparkSystem.geometry.setDrawRange(0, activeCount);
 }
 
 // Smoke particle system
@@ -2822,5 +2899,21 @@ socket.on('playerJoinedRace', (data) => {
 });
 
 // Listen for player driving effects (e.g., smoke)
+
+// ... existing code ...
+// --- Socket Event Handlers ---
+socket.on('playerCollision', (collisionPoint) => {
+    // Create 3 random sparks at the collision point
+    for (let i = 0; i < 3; i++) {
+        const sparkIndex = Math.floor(Math.random() * 5) + 1; // Random number between 1 and 5
+        const sparkTexture = textures[`/Sprites/sparks/spark${sparkIndex}.png`];
+        if (sparkTexture) {
+            createSparksAtPoint(collisionPoint, 1.0, 2.0);
+        }
+    }
+});
+
+// --- Race Initialization ---
+// ... existing code ...
 
 

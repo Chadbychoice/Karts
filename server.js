@@ -366,21 +366,23 @@ function checkCollisions(gameState) {
             if (distance < collisionThreshold && distance > 0) {
                 console.log(`Player-Player Collision detected! Distance: ${distance.toFixed(3)}`);
                 
-                // ... (existing collision point calculation) ...
-                 const collisionPoint = {
-                     x: (playerA.position.x + playerB.position.x) / 2,
-                     y: 1.0,
-                     z: (playerA.position.z + playerB.position.z) / 2
-                 };
-
                 // Calculate response
                 const overlap = collisionThreshold - distance;
                 const nx = dx / distance;
                 const nz = dz / distance;
                 const separationForce = overlap * 3.0;
                 
+                // Calculate collision point
+                const collisionPoint = {
+                    x: (playerA.position.x + playerB.position.x) / 2,
+                    y: 1.0,
+                    z: (playerA.position.z + playerB.position.z) / 2
+                };
+
+                // Emit collision event to all clients
+                io.emit('playerCollision', collisionPoint);
+                
                 // <<< RE-ENABLE P2P POSITIONAL CORRECTION >>>
-                // /*
                 if (!isNaN(nx) && !isNaN(nz) && !isNaN(separationForce)) {
                     playerA.position.x += nx * separationForce;
                     playerA.position.z += nz * separationForce;
@@ -397,7 +399,6 @@ function checkCollisions(gameState) {
                 } else {
                     console.warn(`!!! Skipping P2P position separation due to NaN values (nx=${nx}, nz=${nz}, force=${separationForce}).`);
                 }
-                // */
                 // <<< END RE-ENABLE >>>
                 
                 // Keep velocity exchange logic (less likely to cause jitter)
