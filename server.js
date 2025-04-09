@@ -43,8 +43,8 @@ const editorToClientTypeMap = {
     redblock: { clientType: 'redblock', category: 'obstacles' },
     yellowblock: { clientType: 'yellowblock', category: 'obstacles' },
     tiresred: { clientType: 'tiresred', category: 'obstacles' },
-    tireswhite: { clientType: 'tireswhite', category: 'obstacles' }
-    // Add mappings for any other editor types
+    tireswhite: { clientType: 'tireswhite', category: 'obstacles' },
+    coin: { clientType: 'coin', category: 'collectibles' } // Added coin type
 };
 
 // Define which obstacle types are solid
@@ -65,6 +65,10 @@ const OBSTACLE_HALF_SIZE = 2.5; // Previous: 1.5, makes obstacles 5.0x5.0 box
 const obstacleHalfWidth = OBSTACLE_HALF_SIZE;
 const obstacleHalfLength = OBSTACLE_HALF_SIZE;
 
+// Constants for coin collection
+const COIN_RESPAWN_TIME = 5000; // 5 seconds in milliseconds
+const COIN_COLLECTION_RADIUS = 6.0; // Increased from 4.0 to make collection easier
+
 // --- Translation Function ---
 function translateEditorDataToCourseData(editorData) {
     if (!editorData || !Array.isArray(editorData.tiles)) {
@@ -81,7 +85,8 @@ function translateEditorDataToCourseData(editorData) {
         road: [],
         obstacles: [],
         decorations: [],
-        checkpoints: [] // Checkpoints not handled by editor yet
+        checkpoints: [], // Checkpoints not handled by editor yet
+        collectibles: [] // Add collectibles array for coins
     };
 
     // --- Translate Start Position --- 
@@ -136,7 +141,15 @@ function translateEditorDataToCourseData(editorData) {
         else if (mapping.category === 'road') courseData.road.push(item);
         else if (mapping.category === 'obstacles') courseData.obstacles.push(item);
         else if (mapping.category === 'decorations') courseData.decorations.push(item);
-        else console.warn(`Unknown category '${mapping.category}' for type ${tile.type}`);
+        else if (mapping.category === 'collectibles') {
+            const collectible = {
+                ...item,
+                id: `coin_${tile.x}_${tile.y}`,
+                collected: false,
+                respawnTime: 0
+            };
+            courseData.collectibles.push(collectible);
+        } else console.warn(`Unknown category '${mapping.category}' for type ${tile.type}`);
     });
 
     // --- Translate Elements --- 
@@ -160,7 +173,15 @@ function translateEditorDataToCourseData(editorData) {
 
             if (mapping.category === 'obstacles') courseData.obstacles.push(item);
             else if (mapping.category === 'decorations') courseData.decorations.push(item);
-            else console.warn(`Element type ${element.type} mapped to invalid category ${mapping.category}`);
+            else if (mapping.category === 'collectibles') {
+                const collectible = {
+                    ...item,
+                    id: `coin_${element.x}_${element.y}`,
+                    collected: false,
+                    respawnTime: 0
+                };
+                courseData.collectibles.push(collectible);
+            } else console.warn(`Element type ${element.type} mapped to invalid category ${mapping.category}`);
         });
      } else {
           console.log(`Course ${editorData.name} has no elements array.`);
@@ -170,7 +191,48 @@ function translateEditorDataToCourseData(editorData) {
     return courseData;
 }
 
-// --- End Translation Function ---
+// Add after translateEditorDataToCourseData function
+function addRandomCoinsToRoad(courseData) {
+    // Get all road tiles
+    const roadTiles = courseData.road.filter(tile => tile.type === 'road');
+    
+    // Place coins on about 20% of road tiles
+    const numCoinsToPlace = Math.floor(roadTiles.length * 0.2);
+    
+    console.log(`[CoinPlacement] Adding coins to ${numCoinsToPlace} out of ${roadTiles.length} road tiles`);
+    
+    // Randomly select road tiles to place coins on
+    for (let i = 0; i < numCoinsToPlace; i++) {
+        const randomIndex = Math.floor(Math.random() * roadTiles.length);
+        const roadTile = roadTiles[randomIndex];
+        
+        // Create a coin at the road tile position
+        const coin = {
+            type: 'coin',
+            x: roadTile.x,
+            y: 0,
+            z: roadTile.z,
+            width: EDITOR_TILE_SIZE,
+            length: EDITOR_TILE_SIZE,
+            id: `coin_random_${i}`,
+            collected: false,
+            respawnTime: 0
+        };
+        
+        console.log(`[CoinPlacement] Added coin at (${coin.x}, ${coin.z})`);
+        
+        // Add to collectibles array
+        if (!courseData.collectibles) {
+            courseData.collectibles = [];
+        }
+        courseData.collectibles.push(coin);
+        
+        // Remove the used road tile to avoid duplicates
+        roadTiles.splice(randomIndex, 1);
+    }
+    
+    console.log(`[CoinPlacement] Added ${numCoinsToPlace} random coins to road tiles`);
+}
 
 // Course data (Load existing courses on startup)
 let courses = {};
@@ -188,20 +250,24 @@ async function loadCourses() {
                     const editorData = JSON.parse(rawData);
                     const translatedData = translateEditorDataToCourseData(editorData);
                     if (translatedData) {
+                        // Add random coins to road tiles
+                        addRandomCoinsToRoad(translatedData);
+                        
                         // Store original tiles with translated data
                         translatedData.rawEditorTiles = editorData.tiles;
-                        courses[courseId] = translatedData; 
+                        courses[courseId] = translatedData;
                         console.log(`Loaded and translated course: ${courseId}`);
                     } else {
-                         console.error(`Failed to translate course data for ${file}`);
+                        console.error(`Failed to translate course data for ${file}`);
                     }
                 } catch (parseError) {
                     console.error(`Error parsing or translating course file ${file}:`, parseError);
                 }
             }
         }
+        console.log(`Loaded ${Object.keys(courses).length} courses.`);
     } catch (error) {
-        console.error("Error loading courses:", error);
+        console.error('Error loading courses:', error);
         if (Object.keys(courses).length === 0) {
             console.warn("No courses loaded, ensure courses directory exists and is readable.");
             courses['sausage'] = {
@@ -571,6 +637,65 @@ function checkCollisions(gameState) {
     return collisions.length > 0 ? collisions : null; 
 }
 
+// Add after the checkCollisions function:
+function checkCoinCollections(gameState) {
+    const course = courses[gameState.courseId];
+    if (!course || !course.collectibles) {
+        console.log(`[CoinCheck] No course or collectibles found for course ${gameState.courseId}`);
+        return;
+    }
+
+    console.log(`[CoinCheck] Found ${course.collectibles.length} coins on course ${gameState.courseId}`);
+
+    for (const playerId in gameState.players) {
+        const player = gameState.players[playerId];
+        if (!player.position) {
+            console.log(`[CoinCheck] Player ${playerId} has no position`);
+            continue;
+        }
+
+        for (const coin of course.collectibles) {
+            if (coin.collected) {
+                // Check if it's time to respawn
+                if (Date.now() >= coin.respawnTime) {
+                    coin.collected = false;
+                    coin.respawnTime = 0;
+                    console.log(`[CoinCheck] Coin ${coin.id} respawned`);
+                    // Broadcast coin respawn to all players
+                    io.emit('coinRespawned', {
+                        coinId: coin.id
+                    });
+                }
+                continue;
+            }
+
+            // Check distance between player and coin
+            const dx = player.position.x - coin.x;
+            const dz = player.position.z - coin.z;
+            const distance = Math.sqrt(dx * dx + dz * dz);
+
+            console.log(`[CoinCheck] Distance check - Player ${playerId} at (${player.position.x.toFixed(2)}, ${player.position.z.toFixed(2)}) to Coin at (${coin.x.toFixed(2)}, ${coin.z.toFixed(2)}) = ${distance.toFixed(2)} units`);
+
+            if (distance <= COIN_COLLECTION_RADIUS) {
+                console.log(`[CoinCheck] Coin ${coin.id} collected by player ${playerId}!`);
+                coin.collected = true;
+                coin.respawnTime = Date.now() + COIN_RESPAWN_TIME;
+                
+                // Initialize coins if not exists
+                if (!player.coins) player.coins = 0;
+                player.coins++;
+                
+                // Emit coin collection event to all players
+                io.emit('coinCollected', {
+                    coinId: coin.id,
+                    collectorId: playerId,
+                    totalCoins: player.coins
+                });
+            }
+        }
+    }
+}
+
 // Socket.IO event handlers
 io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
@@ -804,6 +929,13 @@ io.on('connection', (socket) => {
                        socket.broadcast.emit('updatePlayerPosition', socket.id, clientUpdateData.position, clientUpdateData.rotation, clientUpdateData.velocity);
                   }
             }
+
+            // Check coin collections with current course ID
+            const coinCheckState = {
+                ...gameState,
+                courseId: gameState.currentCourse
+            };
+            checkCoinCollections(coinCheckState);
         } else {
              console.warn(`Received playerUpdateState for unknown player: ${socket.id}`);
         }

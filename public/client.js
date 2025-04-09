@@ -178,6 +178,12 @@ const elementTexturesToPreload = new Set([
     // Add any other element types used
 ]);
 
+// Add after texture declarations
+const coinTextures = []; // Array to hold coin animation frames
+const glitterTextures = []; // Array to hold glitter textures
+let coinSprites = new Map(); // Map to store coin sprites by ID
+let playerCoins = 0; // Track local player's coin count
+
 function preloadAssets() {
     console.log("Preloading assets...");
     const assetsToLoad = [
@@ -230,6 +236,23 @@ function preloadAssets() {
         });
     }
 
+    // Add coin textures
+    for (let i = 1; i <= 12; i++) {
+        assetsToLoad.push({
+            key: `/Sprites/coin/coin${i}.png`,
+            type: 'texture',
+            isCoin: true // Mark as coin texture
+        });
+    }
+
+    // Add glitter textures
+    for (let i = 1; i <= 5; i++) {
+        assetsToLoad.push({
+            key: `/Sprites/glitter/glitter${i}.png`,
+            type: 'texture'
+        });
+    }
+
     let assetsLoaded = 0;
     const totalAssets = assetsToLoad.length + 7; // Just flame textures remaining in total
 
@@ -238,6 +261,14 @@ function preloadAssets() {
         console.log(`Assets loaded: ${assetsLoaded}/${totalAssets}`);
         if (assetsLoaded === totalAssets) {
             console.log("All essential assets preloaded.");
+            // Sort coin textures after loading
+            for (let i = 1; i <= 12; i++) {
+                const coinKey = `/Sprites/coin/coin${i}.png`;
+                if (textures[coinKey]) {
+                    coinTextures[i-1] = textures[coinKey];
+                }
+            }
+            console.log(`Loaded ${coinTextures.length} coin textures for animation`);
         }
     };
 
@@ -2002,8 +2033,169 @@ function createCourse(courseData) {
         currentCourseObjects.push(decorationObject);
     });
 
+    // Create coins
+    if (courseData.collectibles) {
+        courseData.collectibles.forEach(coin => {
+            createCoinSprite(coin);
+        });
+    }
+
     console.log(`Course creation completed. Added ${currentCourseObjects.length} elements.`);
 }
+
+function createCoinSprite(coin) {
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: coinTextures[0],
+        transparent: true,
+        alphaTest: 0.1,
+        depthTest: true,
+        depthWrite: false
+    }));
+    
+    sprite.position.set(coin.x, 2, coin.z); // Float 2 units above ground
+    sprite.scale.set(3, 3, 1); // Adjust size as needed
+    sprite.renderOrder = 2; // Increased from 1 to render above track lines
+    
+    // Add animation properties
+    sprite.userData = {
+        frameIndex: 0,
+        lastFrameUpdate: 0,
+        frameDuration: 50, // ms per frame
+        collected: false,
+        coinId: coin.id
+    };
+    
+    scene.add(sprite);
+    coinSprites.set(coin.id, sprite);
+    return sprite;
+}
+
+function updateCoinAnimations() {
+    const now = Date.now();
+    coinSprites.forEach(sprite => {
+        if (sprite.userData.collected) return;
+        
+        if (now - sprite.userData.lastFrameUpdate > sprite.userData.frameDuration) {
+            sprite.userData.frameIndex = (sprite.userData.frameIndex + 1) % 12;
+            sprite.material.map = coinTextures[sprite.userData.frameIndex];
+            sprite.userData.lastFrameUpdate = now;
+        }
+    });
+}
+
+function updateCoinCounter() {
+    coinCounterElement.textContent = `Coins: ${playerCoins}`;
+}
+
+// Add to socket event handlers section
+socket.on('coinCollected', (data) => {
+    const { coinId, collectorId, totalCoins } = data;
+    
+    // Update coin counter only for the collector
+    if (collectorId === localPlayerId) {
+        playerCoins = totalCoins;
+        updateCoinCounter();
+    }
+    
+    const coinSprite = coinSprites.get(coinId);
+    if (coinSprite && players[collectorId]) {
+        // Create more glitter particles
+        const glitterParticles = [];
+        // Create 8 main glitter particles
+        for (let i = 0; i < 8; i++) {
+            glitterParticles.push(createGlitterParticle(coinSprite.position.clone(), coinSprite));
+        }
+        // Create 4 random "stray" glitter particles with larger radius
+        for (let i = 0; i < 4; i++) {
+            const strayGlitter = createGlitterParticle(coinSprite.position.clone(), coinSprite);
+            strayGlitter.userData.radius *= 1.5; // Larger radius
+            strayGlitter.userData.speed *= 1.2; // Faster movement
+            glitterParticles.push(strayGlitter);
+        }
+        
+        coinSprite.userData.collected = true;
+        coinSprite.userData.collectionStartTime = Date.now();
+        coinSprite.userData.initialScale = coinSprite.scale.x;
+        coinSprite.userData.initialY = coinSprite.position.y;
+        coinSprite.userData.glitterParticles = glitterParticles;
+        coinSprite.userData.collectorId = collectorId;
+        
+        const animateCoinCollection = () => {
+            const elapsed = (Date.now() - coinSprite.userData.collectionStartTime) / 1000; // seconds
+            const duration = 0.5; // collection animation duration in seconds
+            
+            if (elapsed < duration && players[collectorId]) {
+                const playerPos = players[collectorId].position;
+                // Spiral around player
+                const angle = elapsed * Math.PI * 4; // 2 full rotations
+                const radius = 3 * (1 - elapsed / duration); // Decreasing radius from 3 to 0
+                const heightGain = 3 * (elapsed / duration); // Rise up to 3 units
+                
+                // Update coin position relative to collector
+                coinSprite.position.x = playerPos.x + Math.cos(angle) * radius;
+                coinSprite.position.y = playerPos.y + 2 + heightGain; // Start 2 units above player
+                coinSprite.position.z = playerPos.z + Math.sin(angle) * radius;
+                
+                const scale = coinSprite.userData.initialScale * (1 - elapsed / duration);
+                coinSprite.scale.set(scale, scale, 1);
+                
+                // Update glitter particles to follow coin
+                glitterParticles.forEach((glitter, index) => {
+                    const particleAngle = angle + glitter.userData.offset + (glitter.userData.speed * elapsed * Math.PI * 2);
+                    const particleRadius = glitter.userData.radius * (1 - elapsed / duration);
+                    const heightOffset = Math.sin(elapsed * Math.PI * 4 + glitter.userData.offset) * 0.5;
+                    
+                    glitter.position.x = coinSprite.position.x + Math.cos(particleAngle) * particleRadius;
+                    glitter.position.y = coinSprite.position.y - 0.5 + heightOffset;
+                    glitter.position.z = coinSprite.position.z + Math.sin(particleAngle) * particleRadius;
+                    
+                    // Fade out glitter with slight randomization
+                    glitter.material.opacity = (1 - (elapsed / duration)) * (0.8 + Math.sin(elapsed * 10 + glitter.userData.offset) * 0.2);
+                });
+                
+                requestAnimationFrame(animateCoinCollection);
+            } else {
+                // Cleanup glitter particles
+                glitterParticles.forEach(glitter => {
+                    scene.remove(glitter);
+                });
+                
+                // Hide coin immediately
+                coinSprite.visible = false;
+            }
+        };
+        
+        // Store initial position for respawn
+        coinSprite.userData.initialX = coinSprite.position.x;
+        coinSprite.userData.initialY = coinSprite.position.y;
+        coinSprite.userData.initialZ = coinSprite.position.z;
+        
+        animateCoinCollection();
+    }
+});
+
+// Add handler for coin respawn event
+socket.on('coinRespawned', (data) => {
+    const { coinId } = data;
+    const coinSprite = coinSprites.get(coinId);
+    if (coinSprite) {
+        // Reset coin position and make it visible again
+        coinSprite.position.set(
+            coinSprite.userData.initialX,
+            coinSprite.userData.initialY,
+            coinSprite.userData.initialZ
+        );
+        coinSprite.scale.set(
+            coinSprite.userData.initialScale,
+            coinSprite.userData.initialScale,
+            1
+        );
+        coinSprite.material.opacity = 1;
+        coinSprite.userData.collected = false;
+        coinSprite.visible = true;
+    }
+});
+
 function initializeSharedSparkSystem() { 
     console.log("Initializing Shared Spark System...");
     console.log("Number of spark textures loaded:", sparkTexturesLoaded.length);
@@ -2132,6 +2324,22 @@ function initializeRaceScene(initialPlayers, options) {
     // Start animation loop if not already running
     if (!animationFrameId) {
         animate();
+    }
+
+    // Show coin counter
+    coinCounterElement.style.display = 'block';
+    playerCoins = 0;
+    updateCoinCounter();
+    
+    // Initialize coin textures if not already loaded
+    if (coinTextures.length === 0) {
+        for (let i = 1; i <= 12; i++) {
+            const coinKey = `/Sprites/coin/coin${i}.png`;
+            if (textures[coinKey]) {
+                coinTextures[i-1] = textures[coinKey];
+            }
+        }
+        console.log(`Initialized ${coinTextures.length} coin textures for animation`);
     }
 }
 
@@ -2308,6 +2516,8 @@ function animate() {
     if (mudParticleSystem) {
         mudParticleSystem.update(delta);
     }
+
+    updateCoinAnimations();
 }
 
 function updateAllSpriteAngles() {
@@ -2549,6 +2759,16 @@ function cleanupRaceScene() {
         mudParticleSystem.clear();
         mudParticleSystem = null;
     }
+
+    // Hide coin counter and reset coins
+    coinCounterElement.style.display = 'none';
+    playerCoins = 0;
+    
+    // Clear coin sprites
+    coinSprites.forEach(sprite => {
+        scene.remove(sprite);
+    });
+    coinSprites.clear();
 }
 
 // --- Spark Effect Setup ---
@@ -3146,5 +3366,45 @@ class GroundParticleSystem {
 // Add after other system declarations
 let grassParticleSystem;
 let mudParticleSystem;
+
+// Add after the DOM Elements section
+const coinCounterElement = document.createElement('div');
+coinCounterElement.id = 'coin-counter';
+coinCounterElement.style.position = 'fixed';
+coinCounterElement.style.top = '20px';
+coinCounterElement.style.right = '20px';
+coinCounterElement.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+coinCounterElement.style.color = 'gold';
+coinCounterElement.style.padding = '10px';
+coinCounterElement.style.borderRadius = '5px';
+coinCounterElement.style.fontFamily = 'Arial, sans-serif';
+coinCounterElement.style.fontSize = '20px';
+coinCounterElement.style.display = 'none';
+document.body.appendChild(coinCounterElement);
+
+// Add glitter particle system
+function createGlitterParticle(position, parentSprite) {
+    const glitterIndex = Math.floor(Math.random() * 5);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: textures[`/Sprites/glitter/glitter${glitterIndex + 1}.png`],
+        transparent: true,
+        alphaTest: 0.1,
+        depthTest: true,
+        depthWrite: false
+    }));
+    
+    sprite.scale.set(1.5, 1.5, 1);
+    sprite.position.copy(position);
+    sprite.userData = {
+        offset: Math.random() * Math.PI * 2,
+        speed: 0.05 + Math.random() * 0.05,
+        radius: 1 + Math.random(),
+        parent: parentSprite,
+        age: 0
+    };
+    
+    scene.add(sprite);
+    return sprite;
+}
 
 

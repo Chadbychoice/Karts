@@ -87,6 +87,7 @@ document.addEventListener('DOMContentLoaded', () => {
         { id: 'yellowblock', label: 'Yellow Block', type: 'element' },
         { id: 'tiresred', label: 'Red Tires', type: 'element' },
         { id: 'tireswhite', label: 'White Tires', type: 'element' },
+        { id: 'coin', label: 'Coin', type: 'element' },
         { id: 'start_pos', label: 'Start Position', type: 'special' },
         { id: 'delete', label: 'Delete', type: 'special' }, // Added delete tool
     ];
@@ -108,7 +109,8 @@ document.addEventListener('DOMContentLoaded', () => {
             'redblock': IMAGE_PATH_PREFIX + 'Sprites/courseelements/redblock.png',
             'yellowblock': IMAGE_PATH_PREFIX + 'Sprites/courseelements/yellowblock.png',
             'tiresred': IMAGE_PATH_PREFIX + 'Sprites/courseelements/tiresred.png',
-            'tireswhite': IMAGE_PATH_PREFIX + 'Sprites/courseelements/tireswhite.png'
+            'tireswhite': IMAGE_PATH_PREFIX + 'Sprites/courseelements/tireswhite.png',
+            'coin': IMAGE_PATH_PREFIX + 'Sprites/coin/coin1.png'
             // Add curve textures if they are separate files, otherwise we rotate road.png
             // 'road_curve': IMAGE_PATH_PREFIX + 'textures/road_curve.png', // REMOVED - Assuming a single curve asset exists
         };
